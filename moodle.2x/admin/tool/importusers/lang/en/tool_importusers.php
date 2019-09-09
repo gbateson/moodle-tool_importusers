@@ -57,3 +57,8 @@ $string['uploadaction_help'] = 'Select the action to be taken for each row of us
 $string['uploadaction'] = 'Upload action';
 $string['worksheettitle'] = 'Worksheet {$a->sheetnum}/{$a->sheetmax}: {$a->title}';
 $string['yesnewusers'] = 'Yes - new users only';
+
+$string['datafile'] = 'Data file';
+$string['datafile_help'] = 'Add the Excel or OpenOffice file that contains data about students you wish to import.';
+$string['formatfile'] = 'Format file';
+$string['formatfile_help'] = 'Add the XML file that specifies the format of the contents in the data file.';

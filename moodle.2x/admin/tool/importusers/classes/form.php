@@ -40,8 +40,8 @@ require_once($CFG->dirroot.'/lib/formslib.php');
  */
 class tool_importusers_form extends moodleform {
 
-    const ACTION_ADD_NEW_ONLY = 1;
-    const ACTION_ADD_AND_UPDATE = 2;
+    const ACTION_ADD_NEW_ONLY    = 1;
+    const ACTION_ADD_AND_UPDATE  = 2;
     const ACTION_UPDATE_EXISTING = 3;
 
     const PASSWORD_CREATE_NEW = 1;
@@ -95,10 +95,18 @@ class tool_importusers_form extends moodleform {
                 $mform->addElement('hidden', $name, 'preview');
                 $mform->setType($name, PARAM_ALPHA);
 
-                $name = 'importfile';
-                $label = get_string('file');
+                $name = 'datafile';
+                $label = get_string($name, $tool);
                 $options = array('accepted_types' => array('.xlsx', '.xls', '.ods'));
-                $mform->addElement('filepicker', $name, $label, 'size="40"', $options);
+                $mform->addElement('filepicker', $name, $label, 'size="10"', $options);
+                $mform->addHelpButton($name, $name, $tool);
+                $mform->addRule($name, null, 'required');
+
+                $name = 'formatfile';
+                $label = get_string($name, $tool);
+                $options = array('accepted_types' => array('.xml'));
+                $mform->addElement('filepicker', $name, $label, 'size="10"', $options);
+                $mform->addHelpButton($name, $name, $tool);
                 $mform->addRule($name, null, 'required');
 
                 $name = 'previewrows';
@@ -119,7 +127,7 @@ class tool_importusers_form extends moodleform {
                 $mform->addElement('hidden', $name, 'import');
                 $mform->setType($name, PARAM_ALPHA);
 
-                $name = 'importfile';
+                $name = 'datafile';
                 $mform->addElement('hidden', $name, optional_param($name, 0, PARAM_INT));
                 $mform->setType($name, PARAM_INT);
 
@@ -149,6 +157,7 @@ class tool_importusers_form extends moodleform {
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, self::PASSWORD_CREATE_NEW);
 
+                // these options are used by several of the following form fields
                 $options = array(self::SELECT_NONE => get_string('no'),
                                  self::SELECT_ALL  => get_string('yes'),
                                  self::SELECT_NEW  => get_string('yesnewusers', $tool));
@@ -277,7 +286,7 @@ class tool_importusers_form extends moodleform {
      */
     public function validation($data, $files) {
         $errors = parent::validation($data, $files);
-        // check input file confirms to expected format
+        // check input file conforms to expected format
         return $errors;
     }
 
@@ -322,23 +331,29 @@ class tool_importusers_form extends moodleform {
         // get the main PHPExcel object
         require_once($CFG->dirroot.'/lib/phpexcel/PHPExcel/IOFactory.php');
 
+        $datadraftid = optional_param('datafile', 0, PARAM_INT);
+        $formatdraftid = optional_param('formatfile', 0, PARAM_INT);
         $previewrows = optional_param('previewrows', 10, PARAM_INT);
-        if ($draftid = optional_param('importfile', 0, PARAM_INT)) {
+        if ($datadraftid && $formatdraftid) {
 
             $fs = get_file_storage();
             $context = self::context(CONTEXT_USER, $USER->id);
-            $files = $fs->get_area_files($context->id, 'user', 'draft', $draftid, 'id DESC', false);
-            $file = reset($files);
+
+            $datafile = $fs->get_area_files($context->id, 'user', 'draft', $datadraftid, 'id DESC', false);
+            $datafile = reset($datafile);
+
+            $formatfile = $fs->get_area_files($context->id, 'user', 'draft', $formatdraftid, 'id DESC', false);
+            $formatfile = reset($formatfile);
 
             $filepath = '';
-            $filename = $file->get_filename();
+            $filename = $datafile->get_filename();
             $filetype = substr($filename, strrpos($filename, '.'));
 
             if ($dir = make_temp_directory('forms')) {
                 if ($filepath = tempnam($dir, 'tempup_')) {
                     rename($filepath, $filepath.$filetype);
                     $filepath .= $filetype;
-                    $file->copy_content_to($filepath);
+                    $datafile->copy_content_to($filepath);
                 }
             }
         } else if (array_key_exists($name, $_FILES)) {
@@ -401,7 +416,7 @@ class tool_importusers_form extends moodleform {
             }
         }
 
-        if ($draftid && file_exists($filepath)) {
+        if ($datadraftid && file_exists($filepath)) {
             unlink($filepath);
         }
 
@@ -422,7 +437,7 @@ class tool_importusers_form extends moodleform {
 
         } else {
             // No data found - shouldn't happen!!
-            $table = get_string('emptyimportfile', $tool);
+            $table = get_string('emptydatafile', $tool);
             echo html_writer::tag('div', $table, array('class' => 'alert alert-warning'));
         }
     }
