@@ -61,8 +61,10 @@ class tool_importusers_form extends moodleform {
 
         // get a valid form state
         $states = array('upload', 'preview', 'import');
-        $this->formstate = optional_param('formstate', 'upload', PARAM_ALPHA);
-        if (in_array($this->formstate, $states)==false) {
+        $this->formstate = optional_param('formstate', '', PARAM_ALPHA);
+        if (in_array($this->formstate, $states)) {
+            // form state is valid - do nothing
+        } else {
             $this->formstate = reset($states);
         }
 
@@ -108,7 +110,7 @@ class tool_importusers_form extends moodleform {
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, 10);
 
-                $this->add_action_buttons(false, get_string('preview'));
+                $this->add_action_buttons(true, get_string('preview'));
                 break;
 
             case 'preview':
@@ -255,7 +257,7 @@ class tool_importusers_form extends moodleform {
                     $element->setValue($value);
                 }
 
-                $this->add_action_buttons(false, get_string('import'));
+                $this->add_action_buttons(true, get_string('import'));
                 break;
         }
     }
@@ -309,90 +311,22 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * get_username_prefixes
-     */
-    public function get_username_prefixes($limit=20) {
-        global $DB;
-
-        $i_min = 2;
-        $i_max = 20;
-        $sql = array();
-        $params = array();
-
-        $regex = $DB->sql_regex_supported();
-        if ($regex) {
-            $where = 'username '.$DB->sql_regex().' ?';
-        } else {
-            // require "." or "_" or "-"
-            $where = $DB->sql_like('username', '?').
-              ' OR '.$DB->sql_like('username', '?').
-              ' OR '.$DB->sql_like('username', '?');
-            // exclude deleted users
-            $where = $DB->sql_like('username', '?', false, false, true).' AND ('.$where.')';
-        }
-        $where = "deleted = ? AND $where";
-
-        for ($i=$i_min; $i<=$i_max; $i++) {
-            $sql[] = 'SELECT '.$DB->sql_substr('username', 1, $i).' AS prefix, COUNT(*) AS countrecords '.
-                     'FROM {user} '.
-                     'WHERE '.$where.' '.
-                     'GROUP BY prefix '.
-                     'HAVING countrecords >= 2';
-            if ($regex) {
-                array_push($params, 0, '^[^._-].*[._-]');
-            } else {
-                array_push($params, 0, '.%', '%.%', '%_%', '%-%');
-            }
-        }
-
-        $sql = 'SELECT prefix, countrecords, LENGTH(p.prefix) AS prefixlength '.
-               'FROM ('.implode(' UNION ', $sql).') p '.
-               'ORDER BY countrecords DESC, prefixlength DESC, prefix ASC';
-
-        $count = 0;
-        if ($prefixes = $DB->get_records_sql_menu($sql, $params)) {
-            foreach ($prefixes as $prefix => $countrecords) {
-                if ($count >= $limit) {
-                    unset($prefixes[$prefix]);
-                } else {
-                    $i_max = strlen($prefix) - 1;
-                    for ($i=$i_min; $i<=$i_max; $i++) {
-                        $p = substr($prefix, 0, $i);
-                        if (array_key_exists($p, $prefixes) && $prefixes[$p]==$countrecords) {
-                            unset($prefixes[$p]);
-                        }
-                    }
-                    if (array_key_exists($prefix, $prefixes)) {
-                        $prefixes[$prefix] = "$prefix ($countrecords)";
-                        $count++;
-                    }
-                }
-            }
-        }
-
-        if (empty($prefixes)) {
-            $prefixes = array();
-        } else {
-            $prefixes = array('' => '') + $prefixes;
-        }
-
-        return $prefixes;
-    }
-
-    /**
      * import_users
      */
     public function preview_users() {
         global $CFG, $USER;
 
+        // cache the plugin name
+        $tool = 'tool_importusers';
+
         // get the main PHPExcel object
         require_once($CFG->dirroot.'/lib/phpexcel/PHPExcel/IOFactory.php');
 
+        $previewrows = optional_param('previewrows', 10, PARAM_INT);
         if ($draftid = optional_param('importfile', 0, PARAM_INT)) {
-            $previewrows = optional_param('previewrows', 10, PARAM_INT);
 
             $fs = get_file_storage();
-            $context = context_user::instance($USER->id);
+            $context = self::context(CONTEXT_USER, $USER->id);
             $files = $fs->get_area_files($context->id, 'user', 'draft', $draftid, 'id DESC', false);
             $file = reset($files);
 
@@ -413,13 +347,84 @@ class tool_importusers_form extends moodleform {
             $filepath = '';
         }
 
+        $table = new html_table();
+        $table->head = array();
+        $table->data = array();
+
+        $rowcount = 0;
         if ($filepath) {
             $reader = PHPExcel_IOFactory::createReaderForFile($filepath);
             $workbook = $reader->load($filepath);
-            foreach ($workbook->getWorksheetIterator() as $worksheet) {
-                echo 'Worksheet: '.$worksheet->getTitle().'<br>';
+
+            $wmax = $workbook->getSheetCount();
+
+            $worksheets = $workbook->getWorksheetIterator();
+            foreach ($worksheets as $worksheet) {
+                $w = $worksheets->key();
+
+                $rmax = $worksheet->getHighestDataRow();
+                $cmax = $worksheet->getHighestDataColumn();
+                $cmax = PHPExcel_Cell::columnIndexFromString($cmax);
+
+                if ($wmax > 1) {
+                    $a = (object)array('sheetnum' => ($w + 1),
+                                       'sheetmax' => $wmax,
+                                       'title' => $worksheet->getTitle());
+                    $title = get_string('worksheettitle', $tool, $a);
+                    $title = html_writer::tag('h3', $title);
+                    $title = new html_table_cell($title);
+                    $title->colspan = $cmax;
+                    $table->data[] = new html_table_row(array($title));
+                }
+
+                $rows = $worksheet->getRowIterator();
+                foreach ($rows as $row) {
+                    //$r = $rows->key();
+
+                    $cells = $row->getCellIterator();
+                    $cells->setIterateOnlyExistingCells();
+
+                    $values = array();
+                    foreach ($cells as $cell) {
+                        //$c = $cells->key();
+                        $value = $cell->getValue();
+                        $values[] = new html_table_cell($value);
+                    }
+                    $table->data[] = new html_table_row($values);
+
+                    $rowcount++;
+                    if ($rowcount >= $previewrows) {
+                        break 2;
+                    }
+
+                }
             }
-        }            
+        }
+
+        if ($draftid && file_exists($filepath)) {
+            unlink($filepath);
+        }
+
+        if (count($table->data)) {
+            $table->id = $tool.'_preview';
+            $table->attributes['class'] = 'generaltable';
+            $table->tablealign = 'center';
+            $table->summary = get_string('previewdata', $tool);
+
+            //$table->head[] = get_string('rownumber', $tool);
+            //foreach ($filecolumns as $column) {
+            //    $table->head[] = $column;
+            //}
+            //$table->head[] = get_string('status');
+
+            $table = html_writer::table($table);
+            echo html_writer::tag('div', $table, array('class' => 'flexible-wrap'));
+
+        } else {
+            // No data found - shouldn't happen!!
+            $table = get_string('emptyimportfile', $tool);
+            echo html_writer::tag('div', $table, array('class' => 'alert alert-warning'));
+        }
     }
 
     /**
