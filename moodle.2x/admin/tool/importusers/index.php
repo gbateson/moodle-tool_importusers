@@ -44,13 +44,8 @@ echo $OUTPUT->heading(get_string('pageheader'.$formstate, 'tool_importusers'));
 if ($form->is_submitted() && $form->is_validated()) {
     echo $OUTPUT->box_start();
     switch ($formstate) {
-        case 'preview':
-            $form->preview_users();
-            break;
-
-        case 'import':
-            $form->import_users();
-            break;
+        case 'preview': $form->preview_users(); break;
+        case 'import': $form->import_users(); break;
     }
     echo $OUTPUT->box_end();
 }
