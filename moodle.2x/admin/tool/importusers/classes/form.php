@@ -325,51 +325,61 @@ class tool_importusers_form extends moodleform {
     public function preview_users() {
         global $CFG, $USER;
 
-        // cache the plugin name
-        $tool = 'tool_importusers';
+        // get XML parsing library
+        require_once($CFG->dirroot.'/lib/xmlize.php');
 
         // get the main PHPExcel object
         require_once($CFG->dirroot.'/lib/phpexcel/PHPExcel/IOFactory.php');
 
-        $datadraftid = optional_param('datafile', 0, PARAM_INT);
+        // cache the plugin name
+        $tool = 'tool_importusers';
+
+        $datadraftid   = optional_param('datafile', 0, PARAM_INT);
         $formatdraftid = optional_param('formatfile', 0, PARAM_INT);
-        $previewrows = optional_param('previewrows', 10, PARAM_INT);
-        if ($datadraftid && $formatdraftid) {
+        $previewrows   = optional_param('previewrows', 10, PARAM_INT);
 
-            $fs = get_file_storage();
-            $context = self::context(CONTEXT_USER, $USER->id);
+        $fs = get_file_storage();
+        $context = self::context(CONTEXT_USER, $USER->id);
 
+        $datafilepath = '';
+        if ($datadraftid) {
             $datafile = $fs->get_area_files($context->id, 'user', 'draft', $datadraftid, 'id DESC', false);
             $datafile = reset($datafile);
 
-            $formatfile = $fs->get_area_files($context->id, 'user', 'draft', $formatdraftid, 'id DESC', false);
-            $formatfile = reset($formatfile);
-
-            $filepath = '';
-            $filename = $datafile->get_filename();
-            $filetype = substr($filename, strrpos($filename, '.'));
+            $datafilename = $datafile->get_filename();
+            $datafiletype = substr($datafilename, strrpos($datafilename, '.'));
 
             if ($dir = make_temp_directory('forms')) {
-                if ($filepath = tempnam($dir, 'tempup_')) {
-                    rename($filepath, $filepath.$filetype);
-                    $filepath .= $filetype;
-                    $datafile->copy_content_to($filepath);
+                if ($datafilepath = tempnam($dir, 'tempup_')) {
+                    rename($datafilepath, $datafilepath.$datafiletype);
+                    $datafilepath .= $datafiletype;
+                    $datafile->copy_content_to($datafilepath);
                 }
             }
-        } else if (array_key_exists($name, $_FILES)) {
-            $filepath = $_FILES[$name]['name'];
-        } else {
-            $filepath = '';
+        } else if (array_key_exists('datafile', $_FILES)) {
+            $datafilepath = $_FILES['datafile']['tmp_name'];
         }
+
+        $formatfilecontent = '';
+        if ($formatdraftid) {
+            $formatfile = $fs->get_area_files($context->id, 'user', 'draft', $formatdraftid, 'id DESC', false);
+            $formatfile = reset($formatfile);
+            $formatfilecontent = $formatfile->get_content();
+        } else if (array_key_exists('formatfile', $_FILES)) {
+            $formatfilecontent = $_FILES['formatfile']['tmp_name'];
+            $formatfilecontent = file_get_contents($formatfilecontent);
+        }
+
+        $format = $this->parse_format_xml($formatfilecontent);
 
         $table = new html_table();
         $table->head = array();
         $table->data = array();
 
         $rowcount = 0;
-        if ($filepath) {
-            $reader = PHPExcel_IOFactory::createReaderForFile($filepath);
-            $workbook = $reader->load($filepath);
+        if ($datafilepath) {
+            $reader = PHPExcel_IOFactory::createReaderForFile($datafilepath);
+            $workbook = $reader->load($datafilepath);
 
             $wmax = $workbook->getSheetCount();
 
@@ -416,8 +426,8 @@ class tool_importusers_form extends moodleform {
             }
         }
 
-        if ($datadraftid && file_exists($filepath)) {
-            unlink($filepath);
+        if ($datadraftid && file_exists($datafilepath)) {
+            unlink($datafilepath);
         }
 
         if (count($table->data)) {
@@ -440,6 +450,98 @@ class tool_importusers_form extends moodleform {
             $table = get_string('emptydatafile', $tool);
             echo html_writer::tag('div', $table, array('class' => 'alert alert-warning'));
         }
+    }
+
+    /**
+     * parse_format_xml
+     */
+    function parse_format_xml($formatfilecontent) {
+
+        if (empty($formatfilecontent)) {
+            return null;
+        }
+
+        $xml = xmlize($formatfilecontent);
+        if (empty($xml)) {
+            return null;
+
+        }
+
+        $format = new tool_importusers_format_file($xml['workbook']);
+
+        $s = 0;
+        $sheets = &$xml['workbook']['#']['sheets'];
+        while (array_key_exists($s, $sheets)) {
+
+            $sheet = new tool_importusers_format_sheet($sheets[$s]);
+
+            $r = 0;
+            $rows = &$sheets[$s]['#']['rows'];
+            while (array_key_exists($r, $rows)) {
+
+                $row = new tool_importusers_format_row($rows[$r]);
+
+                $c = 0;
+                $cells = &$rows[$r]['#']['cells'];
+                while (array_key_exists($c, $cells)) {
+
+                    $cell = new tool_importusers_format_cell($cells[$c]);
+
+                    $i = 0;
+                    $item = &$cells[$c]['#']['item'];
+                    while (array_key_exists($i, $item)) {
+                        $cell->add('items', $item[$i]['#']);
+                        $i++;
+                    }
+                    unset($i, $item);
+                    $c++;
+
+                    $row->add('cells', $cell);
+                    unset($cell);
+                }
+                unset($c, $cells);
+                $r++;
+
+                $sheet->add('rows', $row);
+                unset($row);
+            }
+            unset($r, $rows);
+            $s++;
+
+            $format->add('sheets', $sheet);
+            unset($sheet);
+        }
+        unset($s, $sheets);
+
+        $f = 0;
+        $fields = &$xml['workbook']['#']['fields'];
+        while (array_key_exists($f, $fields)) {
+
+            $fieldtype = $fields[$f]['@']['fieldtype'];
+
+            $m = 0;
+            $maps = &$fields[$f]['#']['map'];
+            while (array_key_exists($m, $maps)) {
+
+                $map = array($maps[$m]['#']['field']['0']['#']
+                          => $maps[$m]['#']['value']['0']['#']);
+
+                if (empty($format->fields)) {
+                    $format->fields = new stdClass();
+                }
+
+                if (empty($format->fields->$fieldtype)) {
+                    $format->fields->$fieldtype = array();
+                }
+                array_push($format->fields->$fieldtype, $map);
+
+                $m++;
+            }
+            unset($m, $map);
+            $f++;
+        }
+
+        return $format;
     }
 
     /**
@@ -2103,4 +2205,69 @@ class tool_importusers_form extends moodleform {
         $callback = array($textlib, $method);
         return call_user_func_array($callback, $args);
     }
+}
+
+class tool_importusers_format_base {
+
+    public $typeparam  = '';
+    public $startparam = '';
+    public $endparam   = '';
+    public $params = array();
+
+    public function __construct($xmlnode) {
+        if (isset($xmlnode['@'])) {
+            foreach ($xmlnode['@'] as $name => $value) {
+                if (empty($name) || empty($value)) {
+                    continue;
+                }
+                if ($name==$this->typeparam || $name==$this->startparam || $this->endparam) {
+                    $this->$name = $value;
+                } else {
+                    $this->params[$name] = $value;
+                }
+            }
+        }
+    }
+
+    public function add($param, $item) {
+        if (is_scalar($item) || is_array($item)) {
+            if (empty($this->$param)) {
+                $this->$param = array();
+            }
+            $this->$param[] = $item;
+        } else {
+            if (empty($this->$param)) {
+                $this->$param = new stdClass();
+            }
+            $type = $item->{$item->typeparam};
+            if (empty($this->$param->$type)) {
+                $this->$param->$type = array();
+            }
+            array_push($this->$param->$type, $item);
+        }
+    }
+}
+
+class tool_importusers_format_file extends tool_importusers_format_base {
+    public $typeparam  = 'filetype';
+    public $sheets = null;
+    public $fields = null;
+}
+class tool_importusers_format_sheet extends tool_importusers_format_base {
+    public $typeparam  = 'sheettype';
+    public $startparam = 'sheetstart';
+    public $endparam   = 'sheetend';
+    public $rows = null;
+}
+class tool_importusers_format_row extends tool_importusers_format_base {
+    public $typeparam  = 'rowtype';
+    public $startparam = 'rowstart';
+    public $endparam   = 'rowend';
+    public $cells = null;
+}
+class tool_importusers_format_cell extends tool_importusers_format_base {
+    public $typeparam  = 'celltype';
+    public $startparam = 'cellstart';
+    public $endparam   = 'cellend';
+    public $items = null;
 }
