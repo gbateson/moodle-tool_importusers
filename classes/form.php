@@ -467,51 +467,97 @@ class tool_importusers_form extends moodleform {
 
         }
 
-        $format = new tool_importusers_format_file($xml['workbook']);
+        $format = new stdClass();
+        $format->type = '';
+        $format->params = array();
+        $format->sheets = array();
+        $format->fields = array();
 
-        $s = 0;
-        $sheets = &$xml['workbook']['#']['sheets'];
-        while (array_key_exists($s, $sheets)) {
-
-            $sheet = new tool_importusers_format_sheet($sheets[$s]);
-
-            $r = 0;
-            $rows = &$sheets[$s]['#']['rows'];
-            while (array_key_exists($r, $rows)) {
-
-                $row = new tool_importusers_format_row($rows[$r]);
-
-                $c = 0;
-                $cells = &$rows[$r]['#']['cells'];
-                while (array_key_exists($c, $cells)) {
-
-                    $cell = new tool_importusers_format_cell($cells[$c]);
-
-                    $i = 0;
-                    $item = &$cells[$c]['#']['item'];
-                    while (array_key_exists($i, $item)) {
-                        $cell->add('items', $item[$i]['#']);
-                        $i++;
-                    }
-                    unset($i, $item);
-                    $c++;
-
-                    $row->add('cells', $cell);
-                    unset($cell);
-                }
-                unset($c, $cells);
-                $r++;
-
-                $sheet->add('rows', $row);
-                unset($row);
+        foreach ($xml['importusersfile']['@'] as $name => $value) {
+            if ($name=='type') {
+                $format->$name = $value;
+            } else {
+                $format->params[$name] = $value;
             }
-            unset($r, $rows);
-            $s++;
-
-            $format->add('sheets', $sheet);
-            unset($sheet);
         }
-        unset($s, $sheets);
+
+        $ss = 0;
+        $sheets = &$xml['importusersfile']['#']['sheets'];
+        while (array_key_exists($ss, $sheets)) {
+
+            $sheettype = $sheets[$ss]['@']['type'];
+            if (empty($format->sheets[$sheettype])) {
+                $format->sheets[$sheettype] = array();
+            }
+            $sss = count($format->sheets[$sheettype]);
+            $format->sheets[$sheettype][$sss] = new stdClass();
+            $format->sheets[$sheettype][$sss]->sheetstart = '';
+            $format->sheets[$sheettype][$sss]->sheetend = '';
+            $format->sheets[$sheettype][$sss]->rows = array();
+
+            $s = 0;
+            $sheet = &$sheets[$ss]['#']['sheet'];
+            while (array_key_exists($s, $sheet)) {
+
+                $format->sheets[$sheettype][$sss]->sheetstart = $sheet[$s]['@']['start'];
+                $format->sheets[$sheettype][$sss]->sheetend = $sheet[$s]['@']['end'];
+
+                $rr = 0;
+                $rows = &$sheet[$s]['#']['rows'];
+                while (array_key_exists($rr, $rows)) {
+
+                    $rowtype = $rows[$rr]['@']['type'];
+                    if (empty($format->sheets[$sheettype][$sss]->rows[$rowtype])) {
+                        $format->sheets[$sheettype][$sss]->rows[$rowtype] = array();
+                    }
+                    $rrr = count($format->sheets[$sheettype][$sss]->rows[$rowtype]);
+                    $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr] = new stdClass();
+                    $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->rowstart = '';
+                    $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->rowend = '';
+                    $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells = array();
+
+                    $r = 0;
+                    $row = &$rows[$r]['#']['row'];
+                    while (array_key_exists($r, $row)) {
+
+                        $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->rowstart = $row[$s]['@']['start'];
+                        $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->rowend = $row[$s]['@']['end'];
+
+                        $cc = 0;
+                        $cells = &$row[$r]['#']['cells'];
+                        while (array_key_exists($cc, $cells)) {
+
+                            $celltype = $cells[$cc]['@']['type'];
+                            if (empty($format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells[$celltype])) {
+                                $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells[$celltype] = array();
+                            }
+                            $ccc = count($format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells[$celltype]);
+
+                            $c = 0;
+                            $cell = &$cells[$cc]['#']['cell'];
+                            while (array_key_exists($c, $cell)) {
+                                $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells[$celltype][$ccc++] = $cell[$c]['#'];
+                                $c++;
+                            }
+                            unset($c, $cell);
+                            $cc++;
+                        }
+                        unset($cc, $cells);
+                        $r++;
+                    }
+                    unset($r, $row);
+                    $rr++;
+                }
+                unset($rr, $rows);
+                $s++;
+            }
+            unset($s, $sheet);
+            $ss++;
+        }
+        unset($ss, $sheets);
+
+print_object($format);
+die;
 
         $f = 0;
         $fields = &$xml['workbook']['#']['fields'];
@@ -2205,69 +2251,4 @@ class tool_importusers_form extends moodleform {
         $callback = array($textlib, $method);
         return call_user_func_array($callback, $args);
     }
-}
-
-class tool_importusers_format_base {
-
-    public $typeparam  = '';
-    public $startparam = '';
-    public $endparam   = '';
-    public $params = array();
-
-    public function __construct($xmlnode) {
-        if (isset($xmlnode['@'])) {
-            foreach ($xmlnode['@'] as $name => $value) {
-                if (empty($name) || empty($value)) {
-                    continue;
-                }
-                if ($name==$this->typeparam || $name==$this->startparam || $this->endparam) {
-                    $this->$name = $value;
-                } else {
-                    $this->params[$name] = $value;
-                }
-            }
-        }
-    }
-
-    public function add($param, $item) {
-        if (is_scalar($item) || is_array($item)) {
-            if (empty($this->$param)) {
-                $this->$param = array();
-            }
-            $this->$param[] = $item;
-        } else {
-            if (empty($this->$param)) {
-                $this->$param = new stdClass();
-            }
-            $type = $item->{$item->typeparam};
-            if (empty($this->$param->$type)) {
-                $this->$param->$type = array();
-            }
-            array_push($this->$param->$type, $item);
-        }
-    }
-}
-
-class tool_importusers_format_file extends tool_importusers_format_base {
-    public $typeparam  = 'filetype';
-    public $sheets = null;
-    public $fields = null;
-}
-class tool_importusers_format_sheet extends tool_importusers_format_base {
-    public $typeparam  = 'sheettype';
-    public $startparam = 'sheetstart';
-    public $endparam   = 'sheetend';
-    public $rows = null;
-}
-class tool_importusers_format_row extends tool_importusers_format_base {
-    public $typeparam  = 'rowtype';
-    public $startparam = 'rowstart';
-    public $endparam   = 'rowend';
-    public $cells = null;
-}
-class tool_importusers_format_cell extends tool_importusers_format_base {
-    public $typeparam  = 'celltype';
-    public $startparam = 'cellstart';
-    public $endparam   = 'cellend';
-    public $items = null;
 }
