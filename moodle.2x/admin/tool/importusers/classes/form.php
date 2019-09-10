@@ -266,6 +266,14 @@ class tool_importusers_form extends moodleform {
                     $element->setValue($value);
                 }
 
+                //$elements = array(
+                //    $mform->createElement('cancel', 'back', get_string('back')),
+                //    $mform->createElement('submit', 'submitbutton', get_string('import')),
+                //    $mform->createElement('cancel', 'cancel', get_string('cancel'))
+                //);
+                //$mform->addGroup($elements, 'buttons', '', array(' '), false);
+                //$mform->closeHeaderBefore('buttons');
+
                 $this->add_action_buttons(true, get_string('import'));
                 break;
         }
@@ -286,7 +294,15 @@ class tool_importusers_form extends moodleform {
      */
     public function validation($data, $files) {
         $errors = parent::validation($data, $files);
-        // check input file conforms to expected format
+
+        //if (empty($data['datafile'])) {
+        //    $errors['datafile'] = 'Did you forget to upload a data file?';
+        //}
+
+        //if (empty($data['formatfile'])) {
+        //    $errors['datafile'] = 'Did you forget to upload a format file?';
+        //}
+
         return $errors;
     }
 
@@ -320,13 +336,10 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * import_users
+     * preview_users
      */
     public function preview_users() {
         global $CFG, $USER;
-
-        // get XML parsing library
-        require_once($CFG->dirroot.'/lib/xmlize.php');
 
         // get the main PHPExcel object
         require_once($CFG->dirroot.'/lib/phpexcel/PHPExcel/IOFactory.php');
@@ -376,52 +389,77 @@ class tool_importusers_form extends moodleform {
         $table->head = array();
         $table->data = array();
 
+
         $rowcount = 0;
         if ($datafilepath) {
+
             $reader = PHPExcel_IOFactory::createReaderForFile($datafilepath);
             $workbook = $reader->load($datafilepath);
 
-            $wmax = $workbook->getSheetCount();
+            $sheetcount = $workbook->getSheetCount();
 
-            $worksheets = $workbook->getWorksheetIterator();
-            foreach ($worksheets as $worksheet) {
-                $w = $worksheets->key();
+            foreach ($format->sheets->data as $sheet) {
 
-                $rmax = $worksheet->getHighestDataRow();
-                $cmax = $worksheet->getHighestDataColumn();
-                $cmax = PHPExcel_Cell::columnIndexFromString($cmax);
-
-                if ($wmax > 1) {
-                    $a = (object)array('sheetnum' => ($w + 1),
-                                       'sheetmax' => $wmax,
-                                       'title' => $worksheet->getTitle());
-                    $title = get_string('worksheettitle', $tool, $a);
-                    $title = html_writer::tag('h3', $title);
-                    $title = new html_table_cell($title);
-                    $title->colspan = $cmax;
-                    $table->data[] = new html_table_row(array($title));
+                // set min/max sheet index
+                if (isset($sheet->sheetstart) && is_numeric($sheet->sheetstart)) {
+                    $smin = $sheet->sheetstart;;
+                } else {
+                    $smin = 1;
+                }
+                if (isset($sheet->sheetend) && is_numeric($sheet->sheetend)) {
+                    $smax = $sheet->sheetend;
+                } else {
+                    $smax = $sheetcount;
                 }
 
-                $rows = $worksheet->getRowIterator();
-                foreach ($rows as $row) {
-                    //$r = $rows->key();
+                for ($s=$smin; $s<=$smax; $s++) {
+                    $worksheet = $workbook->setActiveSheetIndex($s - 1);
 
-                    $cells = $row->getCellIterator();
-                    $cells->setIterateOnlyExistingCells();
+                    foreach ($sheet->rows->data as $row) {
 
-                    $values = array();
-                    foreach ($cells as $cell) {
-                        //$c = $cells->key();
-                        $value = $cell->getValue();
-                        $values[] = new html_table_cell($value);
+                        // set min/max row index
+                        if (isset($row->rowstart) && is_numeric($row->rowstart)) {
+                            $rmin = $row->rowstart;
+                        } else {
+                            $rmin = 1;
+                        }
+                        if (isset($row->rowend) && is_numeric($row->rowend)) {
+                            $rmax = $row->rowend;
+                        } else {
+                            $rmax = $worksheet->getHighestDataRow();
+                        }
+
+                        // set min/max cell index
+                        $cmin = 1;
+                        $cmax = 0;
+
+                        if (isset($row->cells->meta)) {
+                            $cmax = max($cmax, count($row->cells->meta));
+                        }
+                        if (isset($row->cells->data)) {
+                            $cmax = max($cmax, count($row->cells->data));
+                        }
+
+                        for ($r=$rmin; $r<=$rmax; $r++) {
+
+                            $cells = array();
+                            for ($c=$cmin; $c<=$cmax; $c++) {
+                                $cells[] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
+                            }
+                            switch (true) {
+                                case isset($row->cells->meta):
+                                    $table->head = $cells;
+                                    break;
+                                case isset($row->cells->data):
+                                    $table->data[] = $cells;
+                                    $rowcount++;
+                                    break;
+                            }
+                            if ($rowcount >= $previewrows) {
+                                break 4;
+                            }
+                        }
                     }
-                    $table->data[] = new html_table_row($values);
-
-                    $rowcount++;
-                    if ($rowcount >= $previewrows) {
-                        break 2;
-                    }
-
                 }
             }
         }
@@ -432,15 +470,9 @@ class tool_importusers_form extends moodleform {
 
         if (count($table->data)) {
             $table->id = $tool.'_preview';
-            $table->attributes['class'] = 'generaltable';
             $table->tablealign = 'center';
+            $table->attributes['class'] = 'generaltable';
             $table->summary = get_string('previewdata', $tool);
-
-            //$table->head[] = get_string('rownumber', $tool);
-            //foreach ($filecolumns as $column) {
-            //    $table->head[] = $column;
-            //}
-            //$table->head[] = get_string('status');
 
             $table = html_writer::table($table);
             echo html_writer::tag('div', $table, array('class' => 'flexible-wrap'));
@@ -456,6 +488,10 @@ class tool_importusers_form extends moodleform {
      * parse_format_xml
      */
     function parse_format_xml($formatfilecontent) {
+        global $CFG;
+
+        // get XML parsing library
+        require_once($CFG->dirroot.'/lib/xmlize.php');
 
         if (empty($formatfilecontent)) {
             return null;
@@ -467,11 +503,12 @@ class tool_importusers_form extends moodleform {
 
         }
 
-        $format = new stdClass();
-        $format->type = '';
-        $format->params = array();
-        $format->sheets = array();
-        $format->fields = array();
+        $format = (object)array(
+            'type' => '',
+            'params' => array(),
+            'sheets' => new stdClass(),
+            'fields' => new stdClass(),
+        );
 
         foreach ($xml['importusersfile']['@'] as $name => $value) {
             if ($name=='type') {
@@ -485,70 +522,71 @@ class tool_importusers_form extends moodleform {
         $sheets = &$xml['importusersfile']['#']['sheets'];
         while (array_key_exists($ss, $sheets)) {
 
-            $sheettype = $sheets[$ss]['@']['type'];
-            if (empty($format->sheets[$sheettype])) {
-                $format->sheets[$sheettype] = array();
+            $stype = $sheets[$ss]['@']['type'];
+            if (empty($format->sheets->$stype)) {
+                $format->sheets->$stype = array();
             }
-            $sss = count($format->sheets[$sheettype]);
-            $format->sheets[$sheettype][$sss] = new stdClass();
-            $format->sheets[$sheettype][$sss]->sheetstart = '';
-            $format->sheets[$sheettype][$sss]->sheetend = '';
-            $format->sheets[$sheettype][$sss]->rows = array();
+            $sindex = count($format->sheets->$stype);
 
             $s = 0;
             $sheet = &$sheets[$ss]['#']['sheet'];
             while (array_key_exists($s, $sheet)) {
 
-                $format->sheets[$sheettype][$sss]->sheetstart = $sheet[$s]['@']['start'];
-                $format->sheets[$sheettype][$sss]->sheetend = $sheet[$s]['@']['end'];
+                $format->sheets->$stype[$sindex] = (object)array(
+                    'sheetstart' => $sheet[$s]['@']['start'],
+                    'sheetend' => $sheet[$s]['@']['end'],
+                    'rows' => new stdClass()
+                );
 
                 $rr = 0;
                 $rows = &$sheet[$s]['#']['rows'];
                 while (array_key_exists($rr, $rows)) {
 
-                    $rowtype = $rows[$rr]['@']['type'];
-                    if (empty($format->sheets[$sheettype][$sss]->rows[$rowtype])) {
-                        $format->sheets[$sheettype][$sss]->rows[$rowtype] = array();
+                    $rtype = $rows[$rr]['@']['type'];
+                    if (empty($format->sheets->$stype[$sindex]->rows->$rtype)) {
+                        $format->sheets->$stype[$sindex]->rows->$rtype = array();
                     }
-                    $rrr = count($format->sheets[$sheettype][$sss]->rows[$rowtype]);
-                    $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr] = new stdClass();
-                    $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->rowstart = '';
-                    $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->rowend = '';
-                    $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells = array();
+                    $rindex = count($format->sheets->$stype[$sindex]->rows->$rtype);
 
                     $r = 0;
-                    $row = &$rows[$r]['#']['row'];
+                    $row = &$rows[$rr]['#']['row'];
                     while (array_key_exists($r, $row)) {
 
-                        $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->rowstart = $row[$s]['@']['start'];
-                        $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->rowend = $row[$s]['@']['end'];
+                        $format->sheets->$stype[$sindex]->rows->$rtype[$rindex] = (object)array(
+                            'rowstart' => $row[$r]['@']['start'],
+                            'rowend' => $row[$r]['@']['end'],
+                            'cells' => new stdClass()
+                        );
 
                         $cc = 0;
                         $cells = &$row[$r]['#']['cells'];
                         while (array_key_exists($cc, $cells)) {
 
-                            $celltype = $cells[$cc]['@']['type'];
-                            if (empty($format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells[$celltype])) {
-                                $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells[$celltype] = array();
+                            $ctype = $cells[$cc]['@']['type'];
+                            if (empty($format->sheets->$stype[$sindex]->rows->$rtype[$rindex]->cells->$ctype)) {
+                                $format->sheets->$stype[$sindex]->rows->$rtype[$rindex]->cells->$ctype = array();
                             }
-                            $ccc = count($format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells[$celltype]);
+                            $cindex = count($format->sheets->$stype[$sindex]->rows->$rtype[$rindex]->cells->$ctype);
 
                             $c = 0;
                             $cell = &$cells[$cc]['#']['cell'];
                             while (array_key_exists($c, $cell)) {
-                                $format->sheets[$sheettype][$sss]->rows[$rowtype][$rrr]->cells[$celltype][$ccc++] = $cell[$c]['#'];
+                                $format->sheets->$stype[$sindex]->rows->$rtype[$rindex]->cells->$ctype[$cindex] = $cell[$c]['#'];
+                                $cindex++;
                                 $c++;
                             }
                             unset($c, $cell);
                             $cc++;
                         }
                         unset($cc, $cells);
+                        $rindex++;
                         $r++;
                     }
                     unset($r, $row);
                     $rr++;
                 }
                 unset($rr, $rows);
+                $sindex++;
                 $s++;
             }
             unset($s, $sheet);
@@ -556,36 +594,27 @@ class tool_importusers_form extends moodleform {
         }
         unset($ss, $sheets);
 
-print_object($format);
-die;
+        $ff = 0;
+        $fields = &$xml['importusersfile']['#']['fields'];
+        while (array_key_exists($ff, $fields)) {
 
-        $f = 0;
-        $fields = &$xml['workbook']['#']['fields'];
-        while (array_key_exists($f, $fields)) {
-
-            $fieldtype = $fields[$f]['@']['fieldtype'];
-
-            $m = 0;
-            $maps = &$fields[$f]['#']['map'];
-            while (array_key_exists($m, $maps)) {
-
-                $map = array($maps[$m]['#']['field']['0']['#']
-                          => $maps[$m]['#']['value']['0']['#']);
-
-                if (empty($format->fields)) {
-                    $format->fields = new stdClass();
-                }
-
-                if (empty($format->fields->$fieldtype)) {
-                    $format->fields->$fieldtype = array();
-                }
-                array_push($format->fields->$fieldtype, $map);
-
-                $m++;
+            $table = $fields[$ff]['@']['table'];
+            if (empty($format->fields->$table)) {
+                $format->fields->$table = array();
             }
-            unset($m, $map);
-            $f++;
+
+            $f = 0;
+            $field = &$fields[$ff]['#']['field'];
+            while (array_key_exists($f, $field)) {
+                $fieldname = $field[$f]['#']['name'][0]['#'];
+                $fieldvalue = $field[$f]['#']['value'][0]['#'];
+                $format->fields->$table[$fieldname] = $fieldvalue;
+                $f++;
+            }
+            unset($f, $field);
+            $ff++;
         }
+        unset($ff, $fields);
 
         return $format;
     }
@@ -634,83 +663,6 @@ die;
 
         if (! empty($data->enrolcategory)) {
             $columns[] = 'category';
-        }
-
-        // disallow REGEX if DB does not support them
-        if (! $DB->sql_regex_supported()) {
-            if (! empty($data->oldusernamesincludetext)) {
-                if ($data->oldusernamesincludetype==self::SQL_REGEX) {
-                    $data->oldusernamesincludetext = '';
-                }
-            }
-            if (! empty($data->oldusernamesexcludetext)) {
-                if ($data->oldusernamesexcludetype==self::SQL_REGEX) {
-                    $data->oldusernamesexcludetext = '';
-                }
-            }
-        }
-
-        $userids = array();
-        if (! empty($data->oldusernamesincludetext)) {
-
-            // do not alter admin users or current user
-            $users = get_admins();
-            foreach ($users as $user) {
-                $users[$user->id] = $user->username;
-            }
-            $users[$USER->id] = $USER->username;
-
-            list($select, $params) = $DB->get_in_or_equal($users);
-            $select = "NOT (username $select)";
-
-            // add included users, but ignore excluded users
-            if ($data->oldusernamesincludetype==self::SQL_REGEX) {
-                $select .= ' AND username '.$DB->sql_regex(true).' ? ';
-                $params[] = $data->oldusernamesincludetext;
-                if (! empty($data->oldusernamesexcludetext)) {
-                    $select .= ' AND username '.$DB->sql_regex(false).' ?';
-                    $params[] = $data->oldusernamesexcludetext;
-                }
-            } else {
-                $select .= ' AND '.$DB->sql_like('username', '?');
-                $params[] = $data->oldusernamesincludetext;
-                if (! empty($data->oldusernamesexcludetext)) {
-                    $select .= ' AND '.$DB->sql_like('username', '?', false, false, true);
-                    $params[] = $data->oldusernamesexcludetext;
-                }
-            }
-
-            if ($users = $DB->get_records_select('user', $select, $params, 'id', 'id, username')) {
-                $userids = array_keys($users);
-            }
-            unset($users, $user, $select, $params);
-        }
-
-        $count = max($data->countusers, 0);
-        $start = max($data->startusers, 0);
-        $step  = max($data->incrementusers, 1);
-
-        if ($data->usernametype==self::TYPE_USERID) {
-
-            // get currently used ids
-            $select = $DB->sql_like('username', '?');
-            $params = array($data->usernameprefix.'%'.$data->usernamesuffix);
-            if ($nums = $DB->get_records_select('user', $select, $params, null, 'id,username', 0, $count)) {
-                $nums = array_keys($nums);
-            } else {
-                $nums = array();
-            }
-
-            // pad with unused ids
-            if (count($nums) < $count) {
-                $max = $DB->get_field('user', 'MAX(id)', array());
-                for ($i=count($nums); $i<$count; $i++) {
-                    $nums[$i] = ++$max;
-                }
-            }
-        } else {
-            $end  = $start + ($count * $step);
-            $nums = range($start, $end, $step);
         }
 
         // create users

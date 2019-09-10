@@ -31,6 +31,7 @@ require_once($CFG->dirroot.'/lib/adminlib.php');
 admin_externalpage_setup('toolimportusers');
 
 $form = new tool_importusers_form();
+$formstate = $form->get_state(); // "upload", "preview", or "import"
 
 if ($form->is_cancelled()) {
     echo redirect(new moodle_url('/admin/index.php'));
@@ -38,7 +39,6 @@ if ($form->is_cancelled()) {
 
 echo $OUTPUT->header();
 
-$formstate = $form->get_state(); // "upload", "preview", or "import"
 echo $OUTPUT->heading(get_string('pageheader'.$formstate, 'tool_importusers'));
 
 if ($form->is_submitted() && $form->is_validated()) {

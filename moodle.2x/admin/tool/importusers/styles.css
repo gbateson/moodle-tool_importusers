@@ -30,3 +30,5 @@
 .path-admin-tool-importusers table.importusers tr.even { background-color: #ffffee; }
 .path-admin-tool-importusers table.importusers th,
 .path-admin-tool-importusers table.importusers td { border: 1px solid black; border-collapse: collapse; padding: 4px; text-align: center; }
+
+.path-admin-tool-importusers #tool_importusers_preview thead { background-color: #eeeeff; } /* pale blue */
