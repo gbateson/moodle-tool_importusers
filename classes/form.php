@@ -393,9 +393,9 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * importusers_table
+     * render_user_table
      */
-    public function importusers_table() {
+    public function render_user_table() {
         global $CFG, $USER;
 
         // get the main PHPExcel object
@@ -427,8 +427,8 @@ class tool_importusers_form extends moodleform {
             $table->summary = get_string($this->formstate, $this->tool);
             $table->caption = $this->render_caption($datafilename, $workbook);
 
-            $build_table = $this->formstate.'_table';
-            $this->$build_table($workbook, $format, $table);
+            $populate_table = 'populate_'.$this->formstate.'_table';
+            $this->$populate_table($workbook, $format, $table);
         }
 
         if ($datafilepath) {
@@ -633,7 +633,7 @@ class tool_importusers_form extends moodleform {
     public function render_caption($datafilename, $workbook) {
         $sheetcount = $workbook->getSheetCount();;
         $rowcount = 0;
-        for ($s=0; $s<$sheetcount; $s++) {
+        for ($s = 0; $s < $sheetcount; $s++) {
             $rowcount += $workbook->getSheet($s)->getHighestDataRow();
         }
         $a = (object)array(
@@ -645,9 +645,9 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * preview_table
+     * populate_preview_table
      */
-    public function preview_table($workbook, $format, $table) {
+    public function populate_preview_table($workbook, $format, $table) {
 
         $rowcount = 0;
         $previewrows = optional_param('previewrows', 10, PARAM_INT);
@@ -656,7 +656,7 @@ class tool_importusers_form extends moodleform {
 
             list($smin, $smax) = $this->get_sheet_range($workbook, $sheet);
 
-            for ($s=$smin; $s<=$smax; $s++) {
+            for ($s = $smin; $s <= $smax; $s++) {
                 $worksheet = $workbook->setActiveSheetIndex($s - 1);
 
                 foreach ($sheet->rows->data as $row) {
@@ -664,10 +664,10 @@ class tool_importusers_form extends moodleform {
                     list($rmin, $rmax) = $this->get_row_range($worksheet, $row);
                     list($cmin, $cmax, $rowtype) = $this->get_cell_range($row);
 
-                    for ($r=$rmin; $r<=$rmax; $r++) {
+                    for ($r = $rmin; $r <= $rmax; $r++) {
 
                         $cells = array();
-                        for ($c=$cmin; $c<=$cmax; $c++) {
+                        for ( $c = $cmin; $c <= $cmax; $c++) {
                             $cells[] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
                         }
                         switch ($rowtype) {
@@ -693,9 +693,10 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * review_table
+     * populate_review_table
      */
-    public function review_table($workbook, $format, $table) {
+    public function populate_review_table($workbook, $format, $table) {
+
         $rowcount = 0;
         $previewrows = optional_param('previewrows', 10, PARAM_INT);
 
@@ -708,7 +709,7 @@ class tool_importusers_form extends moodleform {
 
             list($smin, $smax) = $this->get_sheet_range($workbook, $sheet);
 
-            for ($s=$smin; $s<=$smax; $s++) {
+            for ( $s = $smin; $s <= $smax; $s++) {
                 $worksheet = $workbook->setActiveSheetIndex($s - 1);
 
                 $sheetvars = array('sheet_name' => $worksheet->getTitle());
@@ -718,7 +719,7 @@ class tool_importusers_form extends moodleform {
                     list($cmin, $cmax, $rowtype) = $this->get_cell_range($row);
 
                     if ($rowtype==self::ROW_TYPE_DATA) {
-                        for ($r=$rmin; $r<=$rmax; $r++) {
+                        for ($r = $rmin; $r <= $rmax; $r++) {
                             foreach ($row->cells->data as $c => $name) {
                                 $sheetvars[$name] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
                             }
@@ -731,57 +732,37 @@ class tool_importusers_form extends moodleform {
                     list($rmin, $rmax) = $this->get_row_range($worksheet, $row);
                     list($cmin, $cmax, $rowtype) = $this->get_cell_range($row);
 
+                    $vars = array();
                     if ($rowtype==self::ROW_TYPE_DATA) {
-                        for ($r=$rmin; $r<=$rmax; $r++) {
+                        for ($r = $rmin; $r <= $rmax; $r++) {
                             $rowvars = array();
                             foreach ($row->cells->data as $c => $name) {
                                 $rowvars[$name] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
                             }
                             $vars = array_merge($filevars, $sheetvars, $rowvars);
-                            print_object($vars);
-                            print_object($format->fields);
-                            die;
+                            if ($user = $this->format_fields($format->fields, 'user', $vars)) {
+                                $course = $this->format_fields($format->fields, 'course', $vars);
+                                $groups = $this->format_fields($format->fields, 'groups', $vars);
+                                $cell = new html_table_cell($r);
+                                $cell->header = true;
+                                $table->data[] = array_merge(array('row' => $cell), $user, $course, $groups);
+                                $rowcount++;
+                            }
+                            if ($rowcount >= $previewrows) {
+                                break 4;
+                            }
                         }
                     }
                 }
             }
         }
-
-        foreach ($format->sheets->data as $sheet) {
-
-            list($smin, $smax) = $this->get_sheet_range($workbook, $sheet);
-
-            for ($s=$smin; $s<=$smax; $s++) {
-                $worksheet = $workbook->setActiveSheetIndex($s - 1);
-
-                foreach ($sheet->rows->data as $row) {
-
-                    list($rmin, $rmax) = $this->get_row_range($worksheet, $row);
-                    list($cmin, $cmax, $rowtype) = $this->get_cell_range($row);
-
-                    for ($r=$rmin; $r<=$rmax; $r++) {
-
-                        $cells = array();
-                        for ($c=$cmin; $c<=$cmax; $c++) {
-                            $cells[] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
-                        }
-                        switch ($rowtype) {
-                            case self::ROW_TYPE_META:
-                                $cell = get_string('row', $this->tool);
-                                $table->head = array_merge(array($cell), $cells);
-                                $table->align = array_merge(array('center'), array_fill(0, $cmax, 'left'));
-                                break;
-                            case self::ROW_TYPE_DATA:
-                                $cell = new html_table_cell($r);
-                                $cell->header = true;
-                                $table->data[] = array_merge(array($cell), $cells);
-                                $rowcount++;
-                                break;
-                        }
-                        if ($rowcount >= $previewrows) {
-                            break 4;
-                        }
-                    }
+        if (empty($table->head) && count($table->data)) {
+            $table->head = array_keys($table->data[0]);
+            foreach ($table->head as $i => $head) {
+                if ($head=='row') {
+                    $table->head[$i] = get_string($head, $this->tool);
+                } else {
+                    $table->head[$i] .= '<br><small style="font-weight: normal;">'.get_string($head).'</small>';;
                 }
             }
         }
@@ -832,10 +813,12 @@ class tool_importusers_form extends moodleform {
                 $cmax = max($cmax, count($row->cells->meta));
                 $rowtype = self::ROW_TYPE_META;
                 break;
+
             case isset($row->cells->data):
                 $cmax = max($cmax, count($row->cells->data));
                 $rowtype = self::ROW_TYPE_DATA;
                 break;
+
             default:
                 $rowtype = self::ROW_TYPE_NONE;
                 break;
@@ -844,9 +827,82 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * import_users
+     * format_fields
      */
-    public function import_table() {
+    public function format_fields($fields, $type, &$vars) {
+        if (empty($fields->$type)) {
+            return array();
+        }
+        $values = array();
+        foreach ($fields->$type as $name => $value) {
+            $values[$name] = $this->format_field($value, $vars);
+        }
+        return $values;
+    }
+
+    /**
+     * format_field
+     */
+    public function format_field($value, $vars) {
+
+        // do basic search and replace of field names
+        $pairs = $vars;
+        krsort($pairs);
+        $value = strtr($value, $vars);
+
+        $search = '/LOWERCASE|UPPERCASE|PROPERCASE|EXTRACT/';
+        if (preg_match_all($search, $value, $matches, PREG_OFFSET_CAPTURE)) {
+
+            $imax = (count($matches[0]) - 1);
+            for ($i = $imax; $i >= 0; $i--) {
+
+                list($match, $start) = $matches[0][$i];
+                $mid = strpos($value, '(', $start + 1);
+                $end = strpos($value, ')', $mid + 1);
+                $args = explode(',', substr($value, $mid + 1, ($end - $mid - 1)));
+
+                switch ($match) {
+                    case 'LOWERCASE':
+                        $args = self::textlib('strtolower', $args[0]);
+                        break;
+
+                    case 'UPPERCASE':
+                        $args = self::textlib('strtoupper', $args[0]);
+                        break;
+
+                    case 'PROPERCASE':
+                        $args = self::textlib('strtotitle', $args[0]);
+                        break;
+
+                    case 'EXTRACT':
+                        $args[0] = preg_split('/\s+/u', $args[0]);
+                        if (array_key_exists(1, $args)) {
+                            if ($args[1] > 0) {
+                                $args[1]--;
+                            }
+                            if (array_key_exists(2, $args)) {
+                                $args[0] = array_splice($args[0], $args[1], $args[2]);
+                            } else {
+                                $args[0] = array_splice($args[0], $args[1]);
+                            }
+                        }
+                        $args = implode(' ', $args[0]);
+                        break;
+
+                    default:
+                        $args = implode(',', $args);
+                        break;
+                }
+                $value = substr_replace($value, $args, $start, $end - $start + 1);
+            }
+        }
+        return $value;
+    }
+
+    /**
+     * populate_import_table
+     */
+    public function populate_import_table($workbook, $format, $table) {
         global $DB, $USER;
 
         // get form data
