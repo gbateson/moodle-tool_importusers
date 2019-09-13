@@ -31,21 +31,34 @@ require_once($CFG->dirroot.'/lib/adminlib.php');
 admin_externalpage_setup('toolimportusers');
 
 $form = new tool_importusers_form();
-$formstate = $form->get_state(); // "upload", "preview", or "import"
+$formstate = $form->get_state(); // "upload", "preview", "review" or "import"
 
 if ($form->is_cancelled()) {
-    echo redirect(new moodle_url('/admin/index.php'));
+
+    switch ($formstate) {
+        case 'preview': $formstate = 'upload';  break;
+        case 'review':  $formstate = 'preview'; break;
+        case 'import':  $formstate = 'review';  break;
+        default: $formstate = ''; // "upload"
+    }
+
+    if ($formstate=='') {
+        echo redirect(new moodle_url('/admin/index.php'));
+    } else {
+        $params = array('formstate' => $formstate);
+        $url = '/admin/tool/importusers/index.php';
+        echo redirect(new moodle_url($url, $params));
+    }
 }
 
 echo $OUTPUT->header();
 
-echo $OUTPUT->heading(get_string('pageheader'.$formstate, 'tool_importusers'));
+echo $OUTPUT->heading(get_string('pageheader', 'tool_importusers', get_string($formstate, 'tool_importusers')));
 
 if ($form->is_submitted() && $form->is_validated()) {
     echo $OUTPUT->box_start();
-    switch ($formstate) {
-        case 'preview': $form->preview_users(); break;
-        case 'import': $form->import_users(); break;
+    if ($formstate=='preview' || $formstate=='review' || $formstate=='import') {
+        echo $form->importusers_table();
     }
     echo $OUTPUT->box_end();
 }

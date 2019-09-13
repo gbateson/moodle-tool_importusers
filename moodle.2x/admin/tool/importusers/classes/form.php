@@ -52,6 +52,14 @@ class tool_importusers_form extends moodleform {
     const SELECT_ALL  = 1;
     const SELECT_NEW  = 2;
 
+    const ROW_TYPE_NONE = 0;
+    const ROW_TYPE_META = 1;
+    const ROW_TYPE_DATA = 2;
+
+    // cache the plugin name
+    public $tool = 'tool_importusers';
+
+
     protected $formstate = '';
 
     /**
@@ -60,7 +68,7 @@ class tool_importusers_form extends moodleform {
     public function __construct($action=null, $customdata=null, $method='post', $target='', $attributes=null, $editable=true) {
 
         // get a valid form state
-        $states = array('upload', 'preview', 'import');
+        $states = array('upload', 'preview', 'review', 'import');
         $this->formstate = optional_param('formstate', '', PARAM_ALPHA);
         if (in_array($this->formstate, $states)) {
             // form state is valid - do nothing
@@ -84,126 +92,124 @@ class tool_importusers_form extends moodleform {
         $mform = $this->_form;
         $this->set_form_id($mform, get_class($this));
 
-        // cache the plugin name
-        $tool = 'tool_importusers';
-
         switch ($this->formstate) {
  
             case 'upload':
 
                 $name = 'formstate';
+                unset($_POST[$name]);
                 $mform->addElement('hidden', $name, 'preview');
                 $mform->setType($name, PARAM_ALPHA);
 
                 $name = 'datafile';
-                $label = get_string($name, $tool);
+                $label = get_string($name, $this->tool);
                 $options = array('accepted_types' => array('.xlsx', '.xls', '.ods'));
                 $mform->addElement('filepicker', $name, $label, 'size="10"', $options);
-                $mform->addHelpButton($name, $name, $tool);
+                $mform->addHelpButton($name, $name, $this->tool);
                 $mform->addRule($name, null, 'required');
 
                 $name = 'formatfile';
-                $label = get_string($name, $tool);
+                $label = get_string($name, $this->tool);
                 $options = array('accepted_types' => array('.xml'));
                 $mform->addElement('filepicker', $name, $label, 'size="10"', $options);
-                $mform->addHelpButton($name, $name, $tool);
+                $mform->addHelpButton($name, $name, $this->tool);
                 $mform->addRule($name, null, 'required');
 
                 $name = 'previewrows';
-                $label = get_string($name, $tool);
+                $label = get_string($name, $this->tool);
                 $options = array(10, 20, 100, 1000, 100000);
                 $options = array_combine($options, $options);
                 $mform->addElement('select', $name, $label, $options);
-                $mform->addHelpButton($name, $name, $tool);
+                $mform->addHelpButton($name, $name, $this->tool);
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, 10);
 
-                $this->add_action_buttons(true, get_string('preview'));
+                $submit = 'preview';
+                $cancel = 'cancel';
                 break;
 
             case 'preview':
 
                 $name = 'formstate';
-                $mform->addElement('hidden', $name, 'import');
+                unset($_POST[$name]);
+                $mform->addElement('hidden', $name, 'review');
                 $mform->setType($name, PARAM_ALPHA);
 
-                $name = 'datafile';
-                $mform->addElement('hidden', $name, optional_param($name, 0, PARAM_INT));
-                $mform->setType($name, PARAM_INT);
-
-                $name = 'previewrows';
-                $mform->addElement('hidden', $name, optional_param($name, 0, PARAM_INT));
-                $mform->setType($name, PARAM_INT);
+                // transfer values from "upload" form
+                $names = array('datafile' => PARAM_INT,
+                               'formatfile' => PARAM_INT,
+                               'previewrows' => PARAM_INT);
+                $this->transfer_incoming_values($mform, $names);
 
                 $this->add_heading($mform, 'settings', 'moodle', true);
 
                 $name = 'uploadaction';
-                $label = get_string($name, $tool);
-                $options = array(self::ACTION_ADD_NEW_ONLY => get_string('actionaddnewonly', $tool),
-                                 self::ACTION_ADD_AND_UPDATE => get_string('actionaddandupdate', $tool),
-                                 self::ACTION_UPDATE_EXISTING => get_string('actionupdateexisting', $tool));
-                $mform->addElement('select', $name, $label, $options);
-                $mform->addHelpButton($name, $name, $tool);
-                $mform->setType($name, PARAM_INT);
-                $mform->setDefault($name, self::ACTION_ADD_NEW_ONLY);
+                $label = get_string($name, $this->tool);
+                $options = array(self::ACTION_ADD_NEW_ONLY => get_string('actionaddnewonly', $this->tool),
+                                 self::ACTION_ADD_AND_UPDATE => get_string('actionaddandupdate', $this->tool),
+                                 self::ACTION_UPDATE_EXISTING => get_string('actionupdateexisting', $this->tool));
 
                 $name = 'passwordaction';
-                $label = get_string($name, $tool);
-                $options = array(self::PASSWORD_CREATE_NEW => get_string('passwordcreatenew', $tool),
-                                 self::PASSWORD_FILE_FIELD => get_string('passwordfilefield', $tool),
-                                 self::PASSWORD_FORM_FIELD => get_string('passwordformfield', $tool));
-                $mform->addElement('select', $name, $label, $options);
-                $mform->addHelpButton($name, $name, $tool);
+                $label = get_string($name, $this->tool);
+                $options = array(self::PASSWORD_CREATE_NEW => get_string('passwordcreatenew', $this->tool),
+                                 self::PASSWORD_FILE_FIELD => get_string('passwordfilefield', $this->tool),
+                                 self::PASSWORD_FORM_FIELD => get_string('passwordformfield', $this->tool));
+                $mform->addGroup(array(
+                    $mform->createElement('select', $name, '', $options),
+                    $mform->createElement('text', $name.'text', 'size="10"'),
+                ), $name.'group', $label, array(' '), false);
+                $mform->addHelpButton($name.'group', $name, $this->tool);
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, self::PASSWORD_CREATE_NEW);
+                $mform->setType($name.'text', PARAM_TEXT);
+                $mform->disabledIf($name.'text', $name, 'neq', self::PASSWORD_FORM_FIELD);
 
                 // these options are used by several of the following form fields
                 $options = array(self::SELECT_NONE => get_string('no'),
                                  self::SELECT_ALL  => get_string('yes'),
-                                 self::SELECT_NEW  => get_string('yesnewusers', $tool));
+                                 self::SELECT_NEW  => get_string('yesnewusers', $this->tool));
 
                 $name = 'sendpassword';
-                $label = get_string($name, $tool);
+                $label = get_string($name, $this->tool);
                 $mform->addElement('select', $name, $label, $options);
-                $mform->addHelpButton($name, $name, $tool);
+                $mform->addHelpButton($name, $name, $this->tool);
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, self::SELECT_NEW);
 
-                $name = 'forcepasswordchange';
-                $label = get_string($name, $tool);
+                $name = 'changepassword';
+                $label = get_string($name, $this->tool);
                 $mform->addElement('select', $name, $label, $options);
-                $mform->addHelpButton($name, $name, $tool);
+                $mform->addHelpButton($name, $name, $this->tool);
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, self::SELECT_NEW);
 
                 $name = 'fixusernames';
-                $label = get_string($name, $tool);
+                $label = get_string($name, $this->tool);
                 $mform->addElement('select', $name, $label, $options);
-                $mform->addHelpButton($name, $name, $tool);
+                $mform->addHelpButton($name, $name, $this->tool);
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, self::SELECT_NEW);
 
                 $name = 'selectusers';
-                $label = get_string($name, $tool);
+                $label = get_string($name, $this->tool);
                 $mform->addElement('select', $name, $label, $options);
-                $mform->addHelpButton($name, $name, $tool);
+                $mform->addHelpButton($name, $name, $this->tool);
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, self::SELECT_NONE);
 
-                $this->add_heading($mform, 'defaultvalues', $tool, false);
+                $this->add_heading($mform, 'defaultvalues', $this->tool, false);
 
                 $name = 'chooseauthmethod';
                 $label = get_string($name,'auth');
-                $options = array();
-                $plugins = get_enabled_auth_plugins();
-                foreach ($plugins as $plugin) {
-                    $objplugin = get_auth_plugin($plugin);
-                    if ($objplugin->can_be_manually_set()) {
+                $options = array('nologin' => ''); // always available
+                foreach (get_enabled_auth_plugins() as $plugin) {
+                    if (get_auth_plugin($plugin)->can_be_manually_set()) {
                         $options[$plugin] = get_string('pluginname', "auth_$plugin");
                     }
                 }
                 $mform->addElement('select', $name, $label, $options);
-                $mform->setDefault($name, 'manual'); // manual is a sensible backwards compatible default
+                $mform->setDefault($name, 'manual'); // always available
+                $mform->setType($name, PARAM_ALPHANUM);
                 $mform->addHelpButton($name, $name, 'auth');
 
                 $name = 'timezone';
@@ -262,20 +268,58 @@ class tool_importusers_form extends moodleform {
                 $element = $mform->getElement($name);
                 $value = $element->getValue();
                 if (is_array($value) && empty($value['text'])) {
-                    $value['text'] = get_string('defaultdescription', $tool);
+                    $value['text'] = get_string('defaultdescription', $this->tool);
                     $element->setValue($value);
                 }
 
-                //$elements = array(
-                //    $mform->createElement('cancel', 'back', get_string('back')),
-                //    $mform->createElement('submit', 'submitbutton', get_string('import')),
-                //    $mform->createElement('cancel', 'cancel', get_string('cancel'))
-                //);
-                //$mform->addGroup($elements, 'buttons', '', array(' '), false);
-                //$mform->closeHeaderBefore('buttons');
-
-                $this->add_action_buttons(true, get_string('import'));
+                $submit = 'review';
+                $cancel = 'back';;
                 break;
+
+            case 'review':
+
+                $name = 'formstate';
+                unset($_POST[$name]);
+                $mform->addElement('hidden', $name, 'import');
+                $mform->setType($name, PARAM_ALPHA);
+
+                // transfer values from "upload" form
+                $names = array('datafile' => PARAM_INT,
+                               'formatfile' => PARAM_INT,
+                               'previewrows' => PARAM_INT,
+                               'uploadaction' => PARAM_INT,
+                               'passwordaction' => PARAM_INT,
+                               'passwordtext' => PARAM_TEXT,
+                               'sendpassword' => PARAM_INT,
+                               'changepassword' => PARAM_INT,
+                               'fixusernames' => PARAM_INT,
+                               'fixusernames' => PARAM_INT,
+                               'selectusers' => PARAM_INT,
+                               'chooseauthmethod' => PARAM_ALPHANUM,
+                               'timezone' => PARAM_TEXT,
+                               'lang' => PARAM_ALPHANUM,
+                               'calendar' => PARAM_ALPHANUM,
+                               'description[text]' => PARAM_TEXT,
+                               'description[format]' => PARAM_INT);
+                $this->transfer_incoming_values($mform, $names);
+
+                $submit = 'import';
+                $cancel = 'back';
+                break;
+
+            default:
+                $submit = '';
+                $cancel = '';
+                break;
+        }
+
+        if ($submit && $cancel) {
+            $name = 'buttons';
+            $mform->addGroup(array(
+                $mform->createElement('submit', 'submit', get_string($submit, $this->tool)),
+                $mform->createElement('cancel', 'cancel', get_string($cancel)),
+            ), $name, '', array(' '), false);
+            $mform->closeHeaderBefore($name);
         }
     }
 
@@ -284,6 +328,19 @@ class tool_importusers_form extends moodleform {
      */
     public function get_state() {
         return $this->formstate;
+    }
+
+    public function transfer_incoming_values($mform, $names) {
+        foreach ($names as $name => $type) {
+            if ($type==PARAM_INT) {
+                $default = 0;
+            } else {
+                $default = '';
+            }
+            $value = optional_param($name, $default, $type);
+            $mform->addElement('hidden', $name, $value);
+            $mform->setType($name, $type);
+        }
     }
 
     /**
@@ -336,158 +393,108 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * preview_users
+     * importusers_table
      */
-    public function preview_users() {
+    public function importusers_table() {
         global $CFG, $USER;
 
         // get the main PHPExcel object
         require_once($CFG->dirroot.'/lib/phpexcel/PHPExcel/IOFactory.php');
 
-        // cache the plugin name
-        $tool = 'tool_importusers';
-
-        $datadraftid   = optional_param('datafile', 0, PARAM_INT);
-        $formatdraftid = optional_param('formatfile', 0, PARAM_INT);
-        $previewrows   = optional_param('previewrows', 10, PARAM_INT);
-
         $fs = get_file_storage();
         $context = self::context(CONTEXT_USER, $USER->id);
 
         $datafilepath = '';
-        if ($datadraftid) {
-            $datafile = $fs->get_area_files($context->id, 'user', 'draft', $datadraftid, 'id DESC', false);
-            $datafile = reset($datafile);
+        $datafilename = '';
+        $this->get_datafileinfo($fs, $context, $datafilename, $datafilepath);
 
-            $datafilename = $datafile->get_filename();
-            $datafiletype = substr($datafilename, strrpos($datafilename, '.'));
-
-            if ($dir = make_temp_directory('forms')) {
-                if ($datafilepath = tempnam($dir, 'tempup_')) {
-                    rename($datafilepath, $datafilepath.$datafiletype);
-                    $datafilepath .= $datafiletype;
-                    $datafile->copy_content_to($datafilepath);
-                }
-            }
-        } else if (array_key_exists('datafile', $_FILES)) {
-            $datafilepath = $_FILES['datafile']['tmp_name'];
-        }
-
+        $formatfilename = '';
         $formatfilecontent = '';
-        if ($formatdraftid) {
-            $formatfile = $fs->get_area_files($context->id, 'user', 'draft', $formatdraftid, 'id DESC', false);
-            $formatfile = reset($formatfile);
-            $formatfilecontent = $formatfile->get_content();
-        } else if (array_key_exists('formatfile', $_FILES)) {
-            $formatfilecontent = $_FILES['formatfile']['tmp_name'];
-            $formatfilecontent = file_get_contents($formatfilecontent);
-        }
-
+        $this->get_formatfileinfo($fs, $context, $formatfilename, $formatfilecontent);
         $format = $this->parse_format_xml($formatfilecontent);
 
         $table = new html_table();
         $table->head = array();
         $table->data = array();
 
-
-        $rowcount = 0;
-        if ($datafilepath) {
-
+        if ($datafilepath && $format) {
             $reader = PHPExcel_IOFactory::createReaderForFile($datafilepath);
             $workbook = $reader->load($datafilepath);
 
-            $sheetcount = $workbook->getSheetCount();
+            $table->tablealign = 'center';
+            $table->id = $this->tool.'_'.$this->formstate;
+            $table->attributes['class'] = 'generaltable '.$this->tool;
+            $table->summary = get_string($this->formstate, $this->tool);
+            $table->caption = $this->render_caption($datafilename, $workbook);
 
-            foreach ($format->sheets->data as $sheet) {
-
-                // set min/max sheet index
-                if (isset($sheet->sheetstart) && is_numeric($sheet->sheetstart)) {
-                    $smin = $sheet->sheetstart;;
-                } else {
-                    $smin = 1;
-                }
-                if (isset($sheet->sheetend) && is_numeric($sheet->sheetend)) {
-                    $smax = $sheet->sheetend;
-                } else {
-                    $smax = $sheetcount;
-                }
-
-                for ($s=$smin; $s<=$smax; $s++) {
-                    $worksheet = $workbook->setActiveSheetIndex($s - 1);
-
-                    foreach ($sheet->rows->data as $row) {
-
-                        // set min/max row index
-                        if (isset($row->rowstart) && is_numeric($row->rowstart)) {
-                            $rmin = $row->rowstart;
-                        } else {
-                            $rmin = 1;
-                        }
-                        if (isset($row->rowend) && is_numeric($row->rowend)) {
-                            $rmax = $row->rowend;
-                        } else {
-                            $rmax = $worksheet->getHighestDataRow();
-                        }
-
-                        // set min/max cell index
-                        $cmin = 1;
-                        $cmax = 0;
-
-                        if (isset($row->cells->meta)) {
-                            $cmax = max($cmax, count($row->cells->meta));
-                        }
-                        if (isset($row->cells->data)) {
-                            $cmax = max($cmax, count($row->cells->data));
-                        }
-
-                        for ($r=$rmin; $r<=$rmax; $r++) {
-
-                            $cells = array();
-                            for ($c=$cmin; $c<=$cmax; $c++) {
-                                $cells[] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
-                            }
-                            switch (true) {
-                                case isset($row->cells->meta):
-                                    $table->head = $cells;
-                                    break;
-                                case isset($row->cells->data):
-                                    $table->data[] = $cells;
-                                    $rowcount++;
-                                    break;
-                            }
-                            if ($rowcount >= $previewrows) {
-                                break 4;
-                            }
-                        }
-                    }
-                }
-            }
+            $build_table = $this->formstate.'_table';
+            $this->$build_table($workbook, $format, $table);
         }
 
-        if ($datadraftid && file_exists($datafilepath)) {
+        if ($datafilepath) {
             unlink($datafilepath);
         }
 
         if (count($table->data)) {
-            $table->id = $tool.'_preview';
-            $table->tablealign = 'center';
-            $table->attributes['class'] = 'generaltable';
-            $table->summary = get_string('previewdata', $tool);
-
             $table = html_writer::table($table);
-            echo html_writer::tag('div', $table, array('class' => 'flexible-wrap'));
-
+            $table = html_writer::tag('div', $table, array('class' => 'flexible-wrap'));
         } else {
             // No data found - shouldn't happen!!
-            $table = get_string('emptydatafile', $tool);
-            echo html_writer::tag('div', $table, array('class' => 'alert alert-warning'));
+            $table = get_string('emptydatafile', $this->tool);
+            $table =  html_writer::tag('div', $table, array('class' => 'alert alert-warning'));
+        }
+
+        return $table;
+    }
+
+    /**
+     * get_datafileinfo
+     */
+    public function get_datafileinfo($fs, $context, &$datafilename, &$datafilepath) {
+        $param = 'datafile';
+        if ($datadraftid = optional_param($param, 0, PARAM_INT)) {
+            $datafile = $fs->get_area_files($context->id, 'user', 'draft', $datadraftid, 'id DESC', false);
+            if (count($datafile)) {
+                $datafile = reset($datafile);
+                $datafilename = $datafile->get_filename();
+                $datafiletype = substr($datafilename, strrpos($datafilename, '.'));
+                if ($dir = make_temp_directory('forms')) {
+                    if ($datafilepath = tempnam($dir, 'tempup_')) {
+                        rename($datafilepath, $datafilepath.$datafiletype);
+                        $datafilepath .= $datafiletype;
+                        $datafile->copy_content_to($datafilepath);
+                    }
+                }
+            }
+        } else if (array_key_exists($name, $_FILES)) {
+            $datafilename = $_FILES[$param]['name'];
+            $datafilepath = $_FILES[$param]['tmp_name'];
+        }
+    }
+
+    /**
+     * get_formatfileinfo
+     */
+    public function get_formatfileinfo($fs, $context, &$formatfilename, &$formatfilecontent) {
+        $param = 'formatfile';
+        if ($formatdraftid = optional_param($param, 0, PARAM_INT)) {
+            $formatfile = $fs->get_area_files($context->id, 'user', 'draft', $formatdraftid, 'id DESC', false);
+            if (count($formatfile)) {
+                $formatfile = reset($formatfile);
+                $formatfilename = $formatfile->get_filename();
+                $formatfilecontent = $formatfile->get_content();
+            }
+        } else if (array_key_exists($param, $_FILES)) {
+            $formatfilename = $_FILES[$param]['name'];
+            $formatfilecontent = $_FILES[$param]['tmp_name'];
+            $formatfilecontent = file_get_contents($formatfilecontent);
         }
     }
 
     /**
      * parse_format_xml
      */
-    function parse_format_xml($formatfilecontent) {
+    public function parse_format_xml($formatfilecontent) {
         global $CFG;
 
         // get XML parsing library
@@ -503,6 +510,7 @@ class tool_importusers_form extends moodleform {
 
         }
 
+        // initialize the $format object
         $format = (object)array(
             'type' => '',
             'params' => array(),
@@ -620,9 +628,225 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
+     * render_caption
+     */
+    public function render_caption($datafilename, $workbook) {
+        $sheetcount = $workbook->getSheetCount();;
+        $rowcount = 0;
+        for ($s=0; $s<$sheetcount; $s++) {
+            $rowcount += $workbook->getSheet($s)->getHighestDataRow();
+        }
+        $a = (object)array(
+            'filename' => $datafilename,
+            'sheetcount' => $sheetcount,
+            'rowcount' => $rowcount
+        );
+        return get_string('sheetrowcount', $this->tool, $a);
+    }
+
+    /**
+     * preview_table
+     */
+    public function preview_table($workbook, $format, $table) {
+
+        $rowcount = 0;
+        $previewrows = optional_param('previewrows', 10, PARAM_INT);
+
+        foreach ($format->sheets->data as $sheet) {
+
+            list($smin, $smax) = $this->get_sheet_range($workbook, $sheet);
+
+            for ($s=$smin; $s<=$smax; $s++) {
+                $worksheet = $workbook->setActiveSheetIndex($s - 1);
+
+                foreach ($sheet->rows->data as $row) {
+
+                    list($rmin, $rmax) = $this->get_row_range($worksheet, $row);
+                    list($cmin, $cmax, $rowtype) = $this->get_cell_range($row);
+
+                    for ($r=$rmin; $r<=$rmax; $r++) {
+
+                        $cells = array();
+                        for ($c=$cmin; $c<=$cmax; $c++) {
+                            $cells[] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
+                        }
+                        switch ($rowtype) {
+                            case self::ROW_TYPE_META:
+                                $cell = get_string('row', $this->tool);
+                                $table->head = array_merge(array($cell), $cells);
+                                $table->align = array_merge(array('center'), array_fill(0, $cmax, 'left'));
+                                break;
+                            case self::ROW_TYPE_DATA:
+                                $cell = new html_table_cell($r);
+                                $cell->header = true;
+                                $table->data[] = array_merge(array($cell), $cells);
+                                $rowcount++;
+                                break;
+                        }
+                        if ($rowcount >= $previewrows) {
+                            break 4;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * review_table
+     */
+    public function review_table($workbook, $format, $table) {
+        $rowcount = 0;
+        $previewrows = optional_param('previewrows', 10, PARAM_INT);
+
+        $filevars = array();
+        foreach ($format->params as $name => $value) {
+            $filevars[$name] = $value;
+        }
+
+        foreach ($format->sheets->data as $sheet) {
+
+            list($smin, $smax) = $this->get_sheet_range($workbook, $sheet);
+
+            for ($s=$smin; $s<=$smax; $s++) {
+                $worksheet = $workbook->setActiveSheetIndex($s - 1);
+
+                $sheetvars = array('sheet_name' => $worksheet->getTitle());
+                foreach ($sheet->rows->meta as $row) {
+
+                    list($rmin, $rmax) = $this->get_row_range($worksheet, $row);
+                    list($cmin, $cmax, $rowtype) = $this->get_cell_range($row);
+
+                    if ($rowtype==self::ROW_TYPE_DATA) {
+                        for ($r=$rmin; $r<=$rmax; $r++) {
+                            foreach ($row->cells->data as $c => $name) {
+                                $sheetvars[$name] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
+                            }
+                        }
+                    }
+                }
+
+                foreach ($sheet->rows->data as $row) {
+
+                    list($rmin, $rmax) = $this->get_row_range($worksheet, $row);
+                    list($cmin, $cmax, $rowtype) = $this->get_cell_range($row);
+
+                    if ($rowtype==self::ROW_TYPE_DATA) {
+                        for ($r=$rmin; $r<=$rmax; $r++) {
+                            $rowvars = array();
+                            foreach ($row->cells->data as $c => $name) {
+                                $rowvars[$name] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
+                            }
+                            $vars = array_merge($filevars, $sheetvars, $rowvars);
+                            print_object($vars);
+                            print_object($format->fields);
+                            die;
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach ($format->sheets->data as $sheet) {
+
+            list($smin, $smax) = $this->get_sheet_range($workbook, $sheet);
+
+            for ($s=$smin; $s<=$smax; $s++) {
+                $worksheet = $workbook->setActiveSheetIndex($s - 1);
+
+                foreach ($sheet->rows->data as $row) {
+
+                    list($rmin, $rmax) = $this->get_row_range($worksheet, $row);
+                    list($cmin, $cmax, $rowtype) = $this->get_cell_range($row);
+
+                    for ($r=$rmin; $r<=$rmax; $r++) {
+
+                        $cells = array();
+                        for ($c=$cmin; $c<=$cmax; $c++) {
+                            $cells[] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
+                        }
+                        switch ($rowtype) {
+                            case self::ROW_TYPE_META:
+                                $cell = get_string('row', $this->tool);
+                                $table->head = array_merge(array($cell), $cells);
+                                $table->align = array_merge(array('center'), array_fill(0, $cmax, 'left'));
+                                break;
+                            case self::ROW_TYPE_DATA:
+                                $cell = new html_table_cell($r);
+                                $cell->header = true;
+                                $table->data[] = array_merge(array($cell), $cells);
+                                $rowcount++;
+                                break;
+                        }
+                        if ($rowcount >= $previewrows) {
+                            break 4;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * get_sheet_range
+     */
+    public function get_sheet_range($workbook, $sheet) {
+        if (isset($sheet->sheetstart) && is_numeric($sheet->sheetstart)) {
+            $smin = $sheet->sheetstart;
+        } else {
+            $smin = 1;
+        }
+        if (isset($sheet->sheetend) && is_numeric($sheet->sheetend)) {
+            $smax = $sheet->sheetend;
+        } else {
+            $smax = $workbook->getSheetCount();
+        }
+        return array($smin, $smax);
+    }
+
+    /**
+     * get_row_range
+     */
+    public function get_row_range($worksheet, $row) {
+        if (isset($row->rowstart) && is_numeric($row->rowstart)) {
+            $rmin = $row->rowstart;
+        } else {
+            $rmin = 1;
+        }
+        if (isset($row->rowend) && is_numeric($row->rowend)) {
+            $rmax = $row->rowend;
+        } else {
+            $rmax = $worksheet->getHighestDataRow();
+        }
+        return array($rmin, $rmax);
+    }
+
+    /**
+     * get_cell_range
+     */
+    public function get_cell_range($row) {
+        $cmin = 1;
+        $cmax = 0;
+        switch (true) {
+            case isset($row->cells->meta):
+                $cmax = max($cmax, count($row->cells->meta));
+                $rowtype = self::ROW_TYPE_META;
+                break;
+            case isset($row->cells->data):
+                $cmax = max($cmax, count($row->cells->data));
+                $rowtype = self::ROW_TYPE_DATA;
+                break;
+            default:
+                $rowtype = self::ROW_TYPE_NONE;
+                break;
+        }
+        return array($cmin, $cmax, $rowtype);
+    }
+
+    /**
      * import_users
      */
-    public function import_users() {
+    public function import_table() {
         global $DB, $USER;
 
         // get form data
@@ -1014,7 +1238,6 @@ class tool_importusers_form extends moodleform {
         }
 
         $category = '';
-        $tool = 'tool_importusers';
         if ($data->enrolcategory) {
 
             // set course shortname
@@ -1023,7 +1246,7 @@ class tool_importusers_form extends moodleform {
             } else {
                 $shortname = $user->username;
             }
-            $fullname = $this->get_multilang_string('courseforuser', $tool, $shortname);
+            $fullname = $this->get_multilang_string('courseforuser', $this->tool, $shortname);
 
             // should we reset the format and numsections for this this course?
             if ($DB->record_exists('course', array('shortname' => $shortname))) {
