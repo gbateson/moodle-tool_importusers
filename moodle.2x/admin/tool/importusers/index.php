@@ -47,18 +47,21 @@ if ($form->is_cancelled()) {
     } else {
         $params = array('formstate' => $formstate);
         $url = '/admin/tool/importusers/index.php';
+        // TODO: submit the form so that we can preserve the values
         echo redirect(new moodle_url($url, $params));
     }
 }
 
 echo $OUTPUT->header();
 
-echo $OUTPUT->heading(get_string('pageheader', 'tool_importusers', get_string($formstate, 'tool_importusers')));
+$heading = get_string($formstate, 'tool_importusers');
+$heading = get_string('pageheader', 'tool_importusers', $heading);
+echo $OUTPUT->heading($heading);
 
 if ($form->is_submitted() && $form->is_validated()) {
     echo $OUTPUT->box_start();
     if ($formstate=='preview' || $formstate=='review' || $formstate=='import') {
-        echo $form->importusers_table();
+        echo $form->render_user_table();
     }
     echo $OUTPUT->box_end();
 }
