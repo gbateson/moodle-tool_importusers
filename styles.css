@@ -25,10 +25,13 @@
  * @since      Moodle 2.0
  */
 
-.path-admin-tool-importusers table.importusers tr.headings { background-color: #eebbee; }
-.path-admin-tool-importusers table.importusers tr.odd { background-color: #eeeeaa; }
-.path-admin-tool-importusers table.importusers tr.even { background-color: #ffffee; }
-.path-admin-tool-importusers table.importusers th,
-.path-admin-tool-importusers table.importusers td { border: 1px solid black; border-collapse: collapse; padding: 4px; text-align: center; }
+.path-admin-tool-importusers .tool_importusers thead { background-color: #eeeeff; } /* pale blue */
+.path-admin-tool-importusers .tool_importusers caption { font-weight: normal; }
 
-.path-admin-tool-importusers #tool_importusers_preview thead { background-color: #eeeeff; } /* pale blue */
+/*
+.path-admin-tool-importusers tool_importusers tr.headings { background-color: #eebbee; }
+.path-admin-tool-importusers tool_importusers tr.odd { background-color: #eeeeaa; }
+.path-admin-tool-importusers tool_importusers tr.even { background-color: #ffffee; }
+.path-admin-tool-importusers tool_importusers th,
+.path-admin-tool-importusers tool_importusers td { border: 1px solid black; border-collapse: collapse; padding: 4px; text-align: center; }
+*/
