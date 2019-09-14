@@ -56,9 +56,15 @@ class tool_importusers_form extends moodleform {
     const ROW_TYPE_META = 1;
     const ROW_TYPE_DATA = 2;
 
+    const MODE_DRYRUN = 1;
+    const MODE_IMPORT = 2;
+
     // cache the plugin name
     public $tool = 'tool_importusers';
 
+    protected $numeric   = null;
+    protected $lowercase = null;
+    protected $uppercase = null;
 
     protected $formstate = '';
 
@@ -66,6 +72,10 @@ class tool_importusers_form extends moodleform {
      * constructor
      */
     public function __construct($action=null, $customdata=null, $method='post', $target='', $attributes=null, $editable=true) {
+
+        $this->numeric   = array_flip(str_split('23456789', 1));
+        $this->lowercase = array_flip(str_split('abdeghjmnpqrstuvyz', 1));
+        $this->uppercase = array_flip(str_split('ABDEGHJLMNPQRSTUVWXYZ', 1));
 
         // get a valid form state
         $states = array('upload', 'preview', 'review', 'import');
@@ -289,10 +299,9 @@ class tool_importusers_form extends moodleform {
                                'previewrows' => PARAM_INT,
                                'uploadaction' => PARAM_INT,
                                'passwordaction' => PARAM_INT,
-                               'passwordtext' => PARAM_TEXT,
+                               'passwordactiontext' => PARAM_TEXT,
                                'sendpassword' => PARAM_INT,
                                'changepassword' => PARAM_INT,
-                               'fixusernames' => PARAM_INT,
                                'fixusernames' => PARAM_INT,
                                'selectusers' => PARAM_INT,
                                'chooseauthmethod' => PARAM_ALPHANUM,
@@ -602,11 +611,27 @@ class tool_importusers_form extends moodleform {
         }
         unset($ss, $sheets);
 
+        $coursecount = 0;
+        $groupcount = 0;
+
         $ff = 0;
         $fields = &$xml['importusersfile']['#']['fields'];
         while (array_key_exists($ff, $fields)) {
 
             $table = $fields[$ff]['@']['table'];
+            switch ($table) {
+                case 'course':
+                    $coursecount++;
+                    $prefix = 'course'.$coursecount.'_';
+                    break;
+                case 'groups':
+                    $groupcount++;
+                    $prefix = 'group'.$groupcount.'_';
+                    break;
+                default:
+                    $prefix = '';
+                    break;
+            }
             if (empty($format->fields->$table)) {
                 $format->fields->$table = array();
             }
@@ -616,13 +641,32 @@ class tool_importusers_form extends moodleform {
             while (array_key_exists($f, $field)) {
                 $fieldname = $field[$f]['#']['name'][0]['#'];
                 $fieldvalue = $field[$f]['#']['value'][0]['#'];
-                $format->fields->$table[$fieldname] = $fieldvalue;
+                $format->fields->$table[$prefix.$fieldname] = $fieldvalue;
                 $f++;
             }
             unset($f, $field);
             $ff++;
         }
         unset($ff, $fields);
+
+        $name = 'passwordaction';
+        $defaultpassword = 'abc123';
+        switch (optional_param($name, '', PARAM_INT)) {
+
+            case self::PASSWORD_CREATE_NEW:
+                $format->fields->user['password'] = 'RANDOM()';
+                break;
+
+            case self::PASSWORD_FILE_FIELD:
+                if (empty($format->fields->user['password'])) {
+                    $format->fields->user['password'] = $defaultpassword;
+                }
+                break;
+
+            case self::PASSWORD_FORM_FIELD:
+                $format->fields->user['password'] = optional_param($name.'text', $defaultpassword, PARAM_TEXT);
+                break;
+        }
 
         return $format;
     }
@@ -695,10 +739,21 @@ class tool_importusers_form extends moodleform {
     /**
      * populate_review_table
      */
-    public function populate_review_table($workbook, $format, $table) {
+    public function populate_review_table($workbook, $format, $table, $dryrun=true) {
+        $this->populate_import_table($workbook, $format, $table, self::MODE_DRYRUN);
+    }
+
+    /**
+     * populate_import_table
+     */
+    public function populate_import_table($workbook, $format, $table, $mode=self::MODE_IMPORT) {
 
         $rowcount = 0;
-        $previewrows = optional_param('previewrows', 10, PARAM_INT);
+        if ($mode==self::MODE_IMPORT) {
+            $previewrows = 0;
+        } else {
+            $previewrows = optional_param('previewrows', 10, PARAM_INT);
+        }
 
         $filevars = array();
         foreach ($format->params as $name => $value) {
@@ -743,12 +798,16 @@ class tool_importusers_form extends moodleform {
                             if ($user = $this->format_fields($format->fields, 'user', $vars)) {
                                 $course = $this->format_fields($format->fields, 'course', $vars);
                                 $groups = $this->format_fields($format->fields, 'groups', $vars);
+                                $data = array_merge($user, $course, $groups);
+                                if ($mode == self::MODE_IMPORT) {
+                                    $data['status'] = $this->import_user($data);
+                                }
                                 $cell = new html_table_cell($r);
                                 $cell->header = true;
-                                $table->data[] = array_merge(array('row' => $cell), $user, $course, $groups);
+                                $table->data[] = array_merge(array('row' => $cell), $data);
                                 $rowcount++;
                             }
-                            if ($rowcount >= $previewrows) {
+                            if ($mode==self::MODE_DRYRUN && $rowcount >= $previewrows) {
                                 break 4;
                             }
                         }
@@ -762,6 +821,7 @@ class tool_importusers_form extends moodleform {
                 if ($head=='row') {
                     $table->head[$i] = get_string($head, $this->tool);
                 } else {
+                    $head = preg_replace('/^(course|group)\d+_/', '', $head);
                     $table->head[$i] .= '<br><small style="font-weight: normal;">'.get_string($head).'</small>';;
                 }
             }
@@ -850,7 +910,7 @@ class tool_importusers_form extends moodleform {
         krsort($pairs);
         $value = strtr($value, $vars);
 
-        $search = '/LOWERCASE|UPPERCASE|PROPERCASE|EXTRACT/';
+        $search = '/LOWERCASE|UPPERCASE|PROPERCASE|EXTRACT|RANDOM/';
         if (preg_match_all($search, $value, $matches, PREG_OFFSET_CAPTURE)) {
 
             $imax = (count($matches[0]) - 1);
@@ -889,6 +949,15 @@ class tool_importusers_form extends moodleform {
                         $args = implode(' ', $args[0]);
                         break;
 
+                    case 'RANDOM':
+                        $args = $this->create_random((object)array(
+                            'countlowercase' => (array_key_exists(0, $args) && is_numeric($args[0]) ? $args[0] : 1),
+                            'countuppercase' => (array_key_exists(1, $args) && is_numeric($args[1]) ? $args[1] : 0),
+                            'countnumeric'   => (array_key_exists(2, $args) && is_numeric($args[2]) ? $args[2] : 2),
+                            'shufflerandom'  => (array_key_exists(3, $args) && is_numeric($args[3]) ? $args[3] : 0)
+                        ));
+                        break;
+
                     default:
                         $args = implode(',', $args);
                         break;
@@ -900,11 +969,13 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * populate_import_table
+     * import_user
      */
-    public function populate_import_table($workbook, $format, $table) {
+    public function import_user($data) {
         global $DB, $USER;
-
+echo 'Import user using the following data ...';
+print_object($data);
+die;
         // get form data
         $data = $this->get_data();
         $time = time();
