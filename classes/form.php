@@ -611,29 +611,40 @@ class tool_importusers_form extends moodleform {
         }
         unset($ss, $sheets);
 
-        $coursecount = 0;
-        $groupcount = 0;
+        // specify order of required keys for each field type
+        $keys = (object)array(
+            'user' => array('username', 'password', 'email', 'firstname', 'lastname'),
+            'course' => array('shortname'),
+            'groups' => array('name', 'description'),
+        );
+
+        // object to store count of each field type
+        $count = new stdClass();
 
         $ff = 0;
         $fields = &$xml['importusersfile']['#']['fields'];
         while (array_key_exists($ff, $fields)) {
 
             $table = $fields[$ff]['@']['table'];
-            switch ($table) {
-                case 'course':
-                    $coursecount++;
-                    $prefix = 'course'.$coursecount.'_';
-                    break;
-                case 'groups':
-                    $groupcount++;
-                    $prefix = 'group'.$groupcount.'_';
-                    break;
-                default:
-                    $prefix = '';
-                    break;
-            }
             if (empty($format->fields->$table)) {
                 $format->fields->$table = array();
+            }
+
+            if (empty($count->$table)) {
+                $count->$table = 1;
+            } else {
+                $count->$table++;
+            }
+            if ($table=='user') {
+                $prefix = '';
+            } else {
+                $prefix = $table.$count->$table.'_';
+            }
+
+            if (isset($keys->$table)) {
+                foreach ($keys->$table as $key) {
+                    $format->fields->$table[$prefix.$key] = '';
+                }
             }
 
             $f = 0;
@@ -790,11 +801,13 @@ class tool_importusers_form extends moodleform {
                     $vars = array();
                     if ($rowtype==self::ROW_TYPE_DATA) {
                         for ($r = $rmin; $r <= $rmax; $r++) {
+
                             $rowvars = array();
                             foreach ($row->cells->data as $c => $name) {
                                 $rowvars[$name] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
                             }
                             $vars = array_merge($filevars, $sheetvars, $rowvars);
+
                             if ($user = $this->format_fields($format->fields, 'user', $vars)) {
                                 $course = $this->format_fields($format->fields, 'course', $vars);
                                 $groups = $this->format_fields($format->fields, 'groups', $vars);
@@ -821,7 +834,7 @@ class tool_importusers_form extends moodleform {
                 if ($head=='row') {
                     $table->head[$i] = get_string($head, $this->tool);
                 } else {
-                    $head = preg_replace('/^(course|group)\d+_/', '', $head);
+                    $head = preg_replace('/^(course|groups)\d+_/', '', $head);
                     $table->head[$i] .= '<br><small style="font-weight: normal;">'.get_string($head).'</small>';;
                 }
             }
@@ -973,55 +986,23 @@ class tool_importusers_form extends moodleform {
      */
     public function import_user($data) {
         global $DB, $USER;
-echo 'Import user using the following data ...';
-print_object($data);
-die;
-        // get form data
-        $data = $this->get_data();
+
         $time = time();
+
+        $username  = self::textlib('strtolower', $data['username']);
+        $password  = $data['username'];
+        $firstname = $data['username'];
+        $lastname  = $data['username'];
+        $alternatename = $data['username'];
 
         $OLD = '';
         $NEW = get_string('new');
         $USED = '--';
 
-        $columns = array();
-
-        if (! empty($data->shownewuser)) {
-            array_unshift($columns, 'newuser');
-        }
-
-        if (! empty($data->showuserid)) {
-            array_unshift($columns, 'id');
-        }
-
-        // always show these columns
-        array_push($columns, 'username', 'rawpassword', 'firstname', 'lastname');
-
-        if (! empty($data->showalternatename)) {
-            $columns[] = 'alternatename';
-        }
-
-        if (! empty($data->enrolcourses)) {
-            $columns[] = 'courses';
-            if (! empty($data->enrolgroups)) {
-                $columns[] = 'groups';
-            }
-        }
-
-        if (! empty($data->enrolcategoryname)) {
-            $data->enrolcategory = $this->get_course_categoryid($data->enrolcategoryname, $data->enrolcategory);
-        }
-
-        if (! empty($data->enrolcategory)) {
-            $columns[] = 'category';
-        }
-
         // create users
         $table = '';
         for ($i=0; $i<$data->countusers; $i++) {
 
-            // create user
-            $num = str_pad($nums[$i], $data->usernamewidth, '0', STR_PAD_LEFT);
             $user = $this->create_user($data, $num);
 
             // add/update user
@@ -1115,93 +1096,110 @@ die;
      * create_user
      *
      * @param integer $data
-     * @param string  $num
      */
-    public function create_user($data, $num) {
+    public function create_user($data) {
         global $CFG, $DB;
 
-        // names
-        $username  = $this->create_name($data, 'username',  $num);
-        $username  = self::textlib('strtolower', $username);
-        $password  = $this->create_name($data, 'password',  $num, $username);
-        $firstname = $this->create_name($data, 'firstname', $num, $username);
-        $lastname  = $this->create_name($data, 'lastname',  $num, $username);
-        $alternatename = $this->create_name($data, 'alternatename', $num, $username);
-
-        // userid
-        if ($data->usernametype==self::TYPE_USERID) {
-            $userid = $DB->get_field('user', 'id', array('id' => intval($num)));
+        $action = optional_param('uploadaction', 0, PARAM_INT);
+        if ($user = $DB->get_record('user', array('username' => $data['username']))) {
+            if ($action == ACTION_ADD_NEW_ONLY) {
+                return get_string('useralreadyexists');
+            }
         } else {
-            $userid = $DB->get_field('user', 'id', array('username' => $username));
+            if ($action == ACTION_UPDATE_EXISTING) {
+                return get_string('usernotfound');
+            }
+            $user = (object)array(
+                'id'        => 0,
+                'username'  => '',
+                'password'  => '',
+                'auth'      => '',
+                'confirmed' => 1,
+                'policyagreed' => 1,
+                'deleted'   => 0,
+                'suspended' => 0,
+                'mnethostid' => $CFG->mnet_localhost_id,
+                'idnumber'  => '',
+                'firstname' => '',
+                'lastname'  => '',
+                'email'     => '',
+                'emailstop' => 0,
+                'icq'       => '',
+                'skype'     => '',
+                'yahoo'     => '',
+                'aim'       => '',
+                'msn'       => '',
+                'phone1'    => '',
+                'phone2'    => '',
+                'institution' => '',
+                'department'  => '',
+                'address'   => '',
+                'city'      => '',
+                'country'   => '',
+                'lang'      => '',
+                'theme'     => '',
+                'timezone'  => '',
+                'firstaccess'   => 0,
+                'lastaccess'    => 0,
+                'lastlogin'     => 0,
+                'currentlogin'  => 0,
+                'lastip'        => '',
+                'secret'        => '',
+                'picture'       => 0,
+                'url'           => '',
+                'description'   => '',
+                'descriptionformat' => 1,
+                'mailformat'    => 1,
+                'maildigest'    => 0,
+                'maildisplay'   => 2,
+                'autosubscribe' => 1,
+                'trackforums'   => 0,
+                'timecreated'   => 0,
+                'timemodified'  => 0,
+                'trustbitmask'  => 0,
+                'imagealt'      => '',
+                'lastnamephonetic'  => '',
+                'firstnamephonetic' => '',
+                'middlename'    => '',
+                'alternatename' => '',
+                'calendartype'  => ''
+            );
         }
 
-        // defaults
-        $lang = $data->lang;
-        if (empty($data->timezone)) {
-            $timezone = 0;
-        } else {
-            $timezone = $data->timezone;
-        }
-        $calendar = $data->calendar;
-        $description = $data->description;
-        $mnethostid  = $CFG->mnet_localhost_id;
+        // these fields an be set from $data
+        $names = array('username', 'password', 'email',
+                       'firstname', 'middlename', 'lastname',
+                       'firstnamephonetic', 'lastnamephonetic', 'alternatename',
+                       'icq', 'skype', 'yahoo', 'aim', 'msn', 'phone1', 'phone2',
+                       'institution', 'department',
+                       'address', 'city', 'country',
+                       'description', 'descriptionformat',
+                       'lang', 'theme', 'timezone');
 
-        return (object)array(
-            'id'        => $userid,
-            'username'  => $username,
-            'auth'      => 'manual',
-            'confirmed' => '1',
-            'policyagreed' => '1',
-            'deleted'   => '0',
-            'suspended' => '0',
-            'mnethostid' => $mnethostid,
-            'password'  => md5($password),
-            'rawpassword'  => $password,
-            'idnumber'  => '',
-            'firstname' => $firstname,
-            'lastname'  => $lastname,
-            'email'     => $username.'@localhost.invalid',
-            'emailstop' => '1',
-            'icq'       => '',
-            'skype'     => '',
-            'yahoo'     => '',
-            'aim'       => '',
-            'msn'       => '',
-            'phone1'    => '',
-            'phone2'    => '',
-            'institution' => '',
-            'department'  => '',
-            'address'   => '',
-            'city'      => '',
-            'country'   => '',
-            'lang'      => $lang,
-            'theme'     => '',
-            'timezone'  => $timezone,
-            'firstaccess'   => '0',
-            'lastaccess'    => '0',
-            'lastlogin'     => '0',
-            'currentlogin'  => '0',
-            'lastip'        => '',
-            'secret'        => '',
-            'picture'       => '0',
-            'url'           => '',
-            'description'   => $description['text'],
-            'descriptionformat' => $description['format'],
-            'mailformat'    => '1',
-            'maildigest'    => '0',
-            'maildisplay'   => '2',
-            'autosubscribe' => '1',
-            'trackforums'   => '0',
-            'timecreated'   => '0',
-            'timemodified'  => '0',
-            'trustbitmask'  => '0',
-            'imagealt'      => '',
-            'lastnamephonetic'  => '',
-            'firstnamephonetic' => '',
-            'middlename'    => '',
-            'alternatename' => $alternatename,
-            'calendartype'  => $calendar
+        // update $user using values from $data
+        foreach ($data as $name => $value) {
+            if (in_array($name, $names) && isset($user->$name)) {
+                $user->$name = $value;
+            }
+        }
+
+        // use default values from form
+        $names = array(
+           'chooseauthmethod' => PARAM_ALPHANUM,
+           'timezone' => PARAM_TEXT,
+           'lang' => PARAM_ALPHANUM,
+           'calendar' => PARAM_ALPHANUM,
+           'description[text]' => PARAM_TEXT,
+           'description[format]' => PARAM_INT);
         );
+        foreach ($names as $name => $type) {
+            if (empty($user->$name)) {
+            }
+            if (in_array($name, $names) && isset($user->$name)) {
+                $username = $value;
+            }
+        }
+        
     }
 
     /**
@@ -1481,66 +1479,6 @@ die;
             }
         }
         return $category;
-    }
-
-    /**
-     * context
-     *
-     * a wrapper method to offer consistent API to get contexts
-     * in Moodle 2.0 and 2.1, we use context() function
-     * in Moodle >= 2.2, we use static context_xxx::instance() method
-     *
-     * @param integer $contextlevel
-     * @param integer $instanceid (optional, default=0)
-     * @param int $strictness (optional, default=0 i.e. IGNORE_MISSING)
-     * @return required context
-     * @todo Finish documenting this function
-     */
-    public static function context($contextlevel, $instanceid=0, $strictness=0) {
-        if (class_exists('context_helper')) {
-            // use call_user_func() to prevent syntax error in PHP 5.2.x
-            // return $classname::instance($instanceid, $strictness);
-            $class = context_helper::get_class_for_level($contextlevel);
-            return call_user_func(array($class, 'instance'), $instanceid, $strictness);
-        } else {
-            return get_context_instance($contextlevel, $instanceid);
-        }
-    }
-
-    /**
-     * get_userfields
-     *
-     * @param string $tableprefix name of database table prefix in query
-     * @param array  $extrafields extra fields to be included in result (do not include TEXT columns because it would break SELECT DISTINCT in MSSQL and ORACLE)
-     * @param string $idalias     alias of id field
-     * @param string $fieldprefix prefix to add to all columns in their aliases, does not apply to 'id'
-     * @return string
-     */
-     function get_userfields($tableprefix = '', array $extrafields = NULL, $idalias = 'id', $fieldprefix = '') {
-        if (class_exists('user_picture')) { // Moodle >= 2.6
-            return user_picture::fields($tableprefix, $extrafields, $idalias, $fieldprefix);
-        }
-        // Moodle <= 2.5
-        $fields = array('id', 'firstname', 'lastname', 'picture', 'imagealt', 'email');
-        if ($tableprefix || $extrafields || $idalias) {
-            if ($tableprefix) {
-                $tableprefix .= '.';
-            }
-            if ($extrafields) {
-                $fields = array_unique(array_merge($fields, $extrafields));
-            }
-            if ($idalias) {
-                $idalias = " AS $idalias";
-            }
-            if ($fieldprefix) {
-                $fieldprefix = " AS $fieldprefix";
-            }
-            foreach ($fields as $i => $field) {
-                $fields[$i] = "$tableprefix$field".($field=='id' ? $idalias : ($fieldprefix=='' ? '' : "$fieldprefix$field"));
-            }
-        }
-        return implode(',', $fields);
-        //return 'u.id AS userid, u.username, u.firstname, u.lastname, u.picture, u.imagealt, u.email';
     }
 
     /**
@@ -2552,5 +2490,65 @@ die;
         $method = array_shift($args);
         $callback = array($textlib, $method);
         return call_user_func_array($callback, $args);
+    }
+
+    /**
+     * context
+     *
+     * a wrapper method to offer consistent API to get contexts
+     * in Moodle 2.0 and 2.1, we use context() function
+     * in Moodle >= 2.2, we use static context_xxx::instance() method
+     *
+     * @param integer $contextlevel
+     * @param integer $instanceid (optional, default=0)
+     * @param int $strictness (optional, default=0 i.e. IGNORE_MISSING)
+     * @return required context
+     * @todo Finish documenting this function
+     */
+    static public function context($contextlevel, $instanceid=0, $strictness=0) {
+        if (class_exists('context_helper')) {
+            // use call_user_func() to prevent syntax error in PHP 5.2.x
+            // return $classname::instance($instanceid, $strictness);
+            $class = context_helper::get_class_for_level($contextlevel);
+            return call_user_func(array($class, 'instance'), $instanceid, $strictness);
+        } else {
+            return get_context_instance($contextlevel, $instanceid);
+        }
+    }
+
+    /**
+     * get_userfields
+     *
+     * @param string $tableprefix name of database table prefix in query
+     * @param array  $extrafields extra fields to be included in result (do not include TEXT columns because it would break SELECT DISTINCT in MSSQL and ORACLE)
+     * @param string $idalias     alias of id field
+     * @param string $fieldprefix prefix to add to all columns in their aliases, does not apply to 'id'
+     * @return string
+     */
+     static public function get_userfields($tableprefix = '', array $extrafields = NULL, $idalias = 'id', $fieldprefix = '') {
+        if (class_exists('user_picture')) { // Moodle >= 2.6
+            return user_picture::fields($tableprefix, $extrafields, $idalias, $fieldprefix);
+        }
+        // Moodle <= 2.5
+        $fields = array('id', 'firstname', 'lastname', 'picture', 'imagealt', 'email');
+        if ($tableprefix || $extrafields || $idalias) {
+            if ($tableprefix) {
+                $tableprefix .= '.';
+            }
+            if ($extrafields) {
+                $fields = array_unique(array_merge($fields, $extrafields));
+            }
+            if ($idalias) {
+                $idalias = " AS $idalias";
+            }
+            if ($fieldprefix) {
+                $fieldprefix = " AS $fieldprefix";
+            }
+            foreach ($fields as $i => $field) {
+                $fields[$i] = "$tableprefix$field".($field=='id' ? $idalias : ($fieldprefix=='' ? '' : "$fieldprefix$field"));
+            }
+        }
+        return implode(',', $fields);
+        //return 'u.id AS userid, u.username, u.firstname, u.lastname, u.picture, u.imagealt, u.email';
     }
 }
