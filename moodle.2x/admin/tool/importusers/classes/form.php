@@ -985,132 +985,21 @@ class tool_importusers_form extends moodleform {
      * import_user
      */
     public function import_user($data) {
-        global $DB, $USER;
+        global $CFG, $DB, $USER;
 
         $time = time();
-
-        $username  = self::textlib('strtolower', $data['username']);
-        $password  = $data['username'];
-        $firstname = $data['username'];
-        $lastname  = $data['username'];
-        $alternatename = $data['username'];
-
-        $OLD = '';
-        $NEW = get_string('new');
-        $USED = '--';
-
-        // create users
-        $table = '';
-        for ($i=0; $i<$data->countusers; $i++) {
-
-            $user = $this->create_user($data, $num);
-
-            // add/update user
-            if ($user->id) {
-                $DB->update_record('user', $user);
-                $user->newuser = $OLD;
-            } else if (count($userids)) {
-                $user->id = array_shift($userids);
-                $user->newuser = $DB->get_field('user', 'username', array('id' => $user->id));
-                $DB->update_record('user', $user);
-            } else {
-                unset($user->id);
-                $user->id = $DB->insert_record('user', $user);
-                $user->newuser = $NEW;
-            }
-
-            // fix enrolments and grades
-            $category = $this->fix_enrolments($data, $user, $time);
-
-            // print headings (first time only)
-            if ($table=='') {
-                $table .= html_writer::start_tag('table', array('class' => 'importusers', 'border' => 1, 'cellspacing' => 4, 'cellpadding' => '4'));
-                $table .= html_writer::start_tag('tr', array('class' => 'headings', 'bgcolor' => '#eebbee'));
-                foreach ($columns as $column) {
-                    switch (true) {
-                        case ($column=='newuser'):
-                            $heading = "$NEW ?";
-                            break;
-                        case ($column=='id'):
-                            $heading = $column;
-                            break;
-                        case ($column=='rawpassword'):
-                            $heading = get_string('password');
-                            break;
-                        case ($column=='courses'):
-                            $heading = get_string('studentcourses', 'tool_importusers');
-                            break;
-                        case ($column=='groups'):
-                            $heading = get_string('studentgroups', 'tool_importusers');
-                            break;
-                        case ($column=='category'):
-                            $heading = get_string('teachercourse', 'tool_importusers');
-                            break;
-                        case isset($USER->$column):
-                            $heading = get_string($column);
-                            break;
-                        default:
-                            $heading = $column;
-                    }
-                    $table .= html_writer::tag('th', $heading, array('class' => $column));
-                }
-                $table .= html_writer::end_tag('tr');
-
-                list($courses, $groups) = $this->format_courses_and_groups($data);
-            }
-
-            // print user data
-            if ($i % 2) {
-                $class = 'user odd';
-                $bgcolor = '#eeeeaa';
-            } else {
-                $class = 'user even';
-                $bgcolor = '#ffffee';
-            }
-            $table .= html_writer::start_tag('tr', array('class' => $class, 'bgcolor' => $bgcolor));
-            foreach ($columns as $column) {
-                if ($column=='courses') {
-                    $table .= html_writer::tag('td', $courses, array('class' => $column));
-                } else if ($column=='groups') {
-                    $table .= html_writer::tag('td', $groups, array('class' => $column));
-                } else if ($column=='category') {
-                    $table .= html_writer::tag('td', $category, array('class' => $column));
-                } else {
-                    $table .= html_writer::tag('td', $user->$column, array('class' => $column));
-                }
-            }
-            $table .= html_writer::end_tag('tr');
-        }
-
-        if ($table) {
-            $table .= html_writer::end_tag('table');
-        }
-
-        echo preg_replace('/\s*(bgcolor|border|cellpadding|cellspacing)="[^"]*"/i', '', $table);
-
-        // add this table as a resource to each course
-        $this->add_login_resources($data, $table);
-    }
-
-    /**
-     * create_user
-     *
-     * @param integer $data
-     */
-    public function create_user($data) {
-        global $CFG, $DB;
+        $update = false;
 
         $action = optional_param('uploadaction', 0, PARAM_INT);
         if ($user = $DB->get_record('user', array('username' => $data['username']))) {
-            if ($action == ACTION_ADD_NEW_ONLY) {
-                return get_string('useralreadyexists');
+            if ($action == self::ACTION_ADD_NEW_ONLY) {
+                return $this->format_status('skippedalreadyexists', 'text-warning', $user->id);
             }
         } else {
-            if ($action == ACTION_UPDATE_EXISTING) {
-                return get_string('usernotfound');
+            if ($action == self::ACTION_UPDATE_EXISTING) {
+                return $this->format_status('skippednotfound', 'text-warning');
             }
             $user = (object)array(
-                'id'        => 0,
                 'username'  => '',
                 'password'  => '',
                 'auth'      => '',
@@ -1154,7 +1043,7 @@ class tool_importusers_form extends moodleform {
                 'maildisplay'   => 2,
                 'autosubscribe' => 1,
                 'trackforums'   => 0,
-                'timecreated'   => 0,
+                'timecreated'   => $time,
                 'timemodified'  => 0,
                 'trustbitmask'  => 0,
                 'imagealt'      => '',
@@ -1166,7 +1055,7 @@ class tool_importusers_form extends moodleform {
             );
         }
 
-        // these fields an be set from $data
+        // these fields can be set from $data
         $names = array('username', 'password', 'email',
                        'firstname', 'middlename', 'lastname',
                        'firstnamephonetic', 'lastnamephonetic', 'alternatename',
@@ -1178,82 +1067,48 @@ class tool_importusers_form extends moodleform {
 
         // update $user using values from $data
         foreach ($data as $name => $value) {
-            if (in_array($name, $names) && isset($user->$name)) {
+            if (in_array($name, $names)) {
                 $user->$name = $value;
             }
         }
 
         // use default values from form
-        $names = array(
-           'chooseauthmethod' => PARAM_ALPHANUM,
-           'timezone' => PARAM_TEXT,
-           'lang' => PARAM_ALPHANUM,
-           'calendar' => PARAM_ALPHANUM,
-           'description[text]' => PARAM_TEXT,
-           'description[format]' => PARAM_INT);
-        );
+        $names = array('chooseauthmethod'  => PARAM_ALPHANUM,
+                       'timezone'          => PARAM_TEXT,
+                       'lang'              => PARAM_ALPHANUM,
+                       'calendar'          => PARAM_ALPHANUM,
+                       'description[text]' => PARAM_TEXT,
+                       'description[format]' => PARAM_INT);
         foreach ($names as $name => $type) {
+            $fieldname = strtr($name, array('[' => '', ']' => ''));
             if (empty($user->$name)) {
-            }
-            if (in_array($name, $names) && isset($user->$name)) {
-                $username = $value;
+                $user->$fieldname = optional_param($name, '', $type);
             }
         }
-        
+
+        if (empty($user->id)) {
+            if ($user->id = $DB->insert_record('user', $user)) {
+                return $this->format_status('added', 'text-success', $user->id);
+            } else {
+                return $this->format_status('skippednotadded', 'text-danger');
+            }
+        } else {
+            $DB->update_record('user', $user);
+            return $this->format_status('updated', 'text-success', $user->id);
+        }
     }
 
     /**
-     * create_name
-     *
-     * @param integer $data
-     * @param integer $name
-     * @param string  $num (id or sequence)
-     * @param string  $username
+     * format_status
      */
-    public function create_name($data, $name, $num, $username='') {
-
-        $prefix = $name.'prefix';
-        if (isset($data->$prefix)) {
-            $prefix = $data->$prefix;
-        } else {
-            $prefix = '';
+    public function format_status($stringname, $class, $userid=0) {    
+        $status = get_string($stringname, $this->tool);
+        $status = html_writer::tag('span', $status, array('class' => $class));
+        if ($userid) {
+            $url = new moodle_url('/user/profile.php', array('id' => $userid));
+            $status = html_writer::link($url, $status, array('onclick' => "this.target='importusers'"));
         }
-
-        $suffix = $name.'suffix';
-        if (isset($data->$suffix)) {
-            $suffix = $data->$suffix;
-        } else {
-            $suffix = '';
-        }
-
-        $type = $name.'type';
-        if (isset($data->$type)) {
-            $type = $data->$type;
-        } else {
-            $type = self::TYPE_SEQUENCE;
-        }
-
-        switch ($type) {
-
-            case self::TYPE_FIXED:
-                return $prefix.$suffix;
-
-            case self::TYPE_SEQUENCE:
-                return $prefix.$num.$suffix;
-
-            case self::TYPE_RANDOM:
-                $random = $this->create_random($data);
-                return $prefix.$random.$suffix;
-
-            case self::TYPE_USERID:
-                return $prefix.$num.$suffix;
-
-            case self::TYPE_USERNAME:
-                return $prefix.$username.$suffix;
-
-
-            default: return ''; // shouldn;t happen !!
-        }
+        return $status;
     }
 
     /**
