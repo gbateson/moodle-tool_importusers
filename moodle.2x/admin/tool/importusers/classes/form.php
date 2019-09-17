@@ -158,6 +158,10 @@ class tool_importusers_form extends moodleform {
                 $options = array(self::ACTION_ADD_NEW_ONLY => get_string('actionaddnewonly', $this->tool),
                                  self::ACTION_ADD_AND_UPDATE => get_string('actionaddandupdate', $this->tool),
                                  self::ACTION_UPDATE_EXISTING => get_string('actionupdateexisting', $this->tool));
+                $mform->addElement('select', $name, $label, $options);
+                $mform->addHelpButton($name, $name, $this->tool);
+                $mform->setType($name, PARAM_INT);
+                $mform->setDefault($name, self::SELECT_NEW);
 
                 $name = 'passwordaction';
                 $label = get_string($name, $this->tool);
@@ -988,17 +992,21 @@ class tool_importusers_form extends moodleform {
         global $CFG, $DB, $USER;
 
         $time = time();
-        $update = false;
+        $status = array();
 
         $action = optional_param('uploadaction', 0, PARAM_INT);
         if ($user = $DB->get_record('user', array('username' => $data['username']))) {
             if ($action == self::ACTION_ADD_NEW_ONLY) {
-                return $this->format_status('skippedalreadyexists', 'text-warning', $user->id);
+                $status[] = $this->format_status_user('userskipped', 'text-warning', $user->id);
+                $update = false;
+            } else {
+                $update = true;
             }
         } else {
             if ($action == self::ACTION_UPDATE_EXISTING) {
-                return $this->format_status('skippednotfound', 'text-warning');
+                return $this->format_status('usermissing', 'text-warning');
             }
+            $update = true;
             $user = (object)array(
                 'username'  => '',
                 'password'  => '',
@@ -1055,57 +1063,137 @@ class tool_importusers_form extends moodleform {
             );
         }
 
-        // these fields can be set from $data
-        $names = array('username', 'password', 'email',
-                       'firstname', 'middlename', 'lastname',
-                       'firstnamephonetic', 'lastnamephonetic', 'alternatename',
-                       'icq', 'skype', 'yahoo', 'aim', 'msn', 'phone1', 'phone2',
-                       'institution', 'department',
-                       'address', 'city', 'country',
-                       'description', 'descriptionformat',
-                       'lang', 'theme', 'timezone');
+        if ($update) {
 
-        // update $user using values from $data
-        foreach ($data as $name => $value) {
-            if (in_array($name, $names)) {
-                $user->$name = $value;
+            // these fields can be set from $data
+            $names = array('username', 'password', 'email',
+                           'firstname', 'middlename', 'lastname',
+                           'firstnamephonetic', 'lastnamephonetic', 'alternatename',
+                           'icq', 'skype', 'yahoo', 'aim', 'msn', 'phone1', 'phone2',
+                           'institution', 'department',
+                           'address', 'city', 'country',
+                           'description', 'descriptionformat',
+                           'lang', 'theme', 'timezone');
+
+            // update $user using values from $data
+            foreach ($data as $name => $value) {
+                if (in_array($name, $names)) {
+                    $user->$name = $value;
+                }
             }
-        }
 
-        // use default values from form
-        $names = array('chooseauthmethod'  => PARAM_ALPHANUM,
-                       'timezone'          => PARAM_TEXT,
-                       'lang'              => PARAM_ALPHANUM,
-                       'calendar'          => PARAM_ALPHANUM,
-                       'description[text]' => PARAM_TEXT,
-                       'description[format]' => PARAM_INT);
-        foreach ($names as $name => $type) {
-            $fieldname = strtr($name, array('[' => '', ']' => ''));
-            if (empty($user->$name)) {
-                $user->$fieldname = optional_param($name, '', $type);
+            // use default values from form
+            $names = array('chooseauthmethod'  => PARAM_ALPHANUM,
+                           'timezone'          => PARAM_TEXT,
+                           'lang'              => PARAM_ALPHANUM,
+                           'calendar'          => PARAM_ALPHANUM,
+                           'description[text]' => PARAM_TEXT,
+                           'description[format]' => PARAM_INT);
+
+            foreach ($names as $name => $type) {
+                $fieldname = strtr($name, array('[' => '', ']' => ''));
+                if (empty($user->$name)) {
+                    $user->$fieldname = optional_param($name, '', $type);
+                }
             }
         }
 
         if (empty($user->id)) {
             if ($user->id = $DB->insert_record('user', $user)) {
-                return $this->format_status('added', 'text-success', $user->id);
+                $status[] = $this->format_status_user('useradded', 'text-success', $user->id);
             } else {
-                return $this->format_status('skippednotadded', 'text-danger');
+                return $this->format_status('usernotadded', 'text-danger');
             }
-        } else {
+        } else if ($update) {
             $DB->update_record('user', $user);
-            return $this->format_status('updated', 'text-success', $user->id);
+            $status[] = $this->format_status_user('userupdated', 'text-success', $user->id);
         }
+
+        $search = '/^course\d+_shortname$/';
+        $shortnames = preg_grep($search, array_keys($data));
+        foreach ($shortnames as $shortname) {
+
+            $params = array('shortname' => $data[$shortname]);
+            if ($courseid = $DB->get_records('course', $params, 'id', 'id,shortname')) {
+                $courseid = reset($courseid)->id;
+
+                // enrol in this course
+                if ($role = $this->get_role_record('student')) {
+                    if ($context = self::context(CONTEXT_COURSE, $courseid)) {
+                        $this->get_role_assignment($context->id, $role->id, $user->id, $time);
+
+                        $status[] = $this->format_status_course('userenrolled', 'text-success', $courseid);
+
+                        $i = substr($shortname, 6, -10);
+                        $search = '/^groups'.$i.'_name$/';
+                        $names = preg_grep($search, array_keys($data));
+                        foreach ($names as $name) {
+                            $name = $data[$name];
+                            $description = 'groups'.$i.'_description';
+                            if (empty($data[$description])) {
+                                $description = '';
+                            } else {
+                                $description = $data[$description];
+                            }
+                            if ($groupid = $this->get_groupid($courseid, $name, $description, $time)) {
+                                $this->get_group_memberid($groupid, $user->id, $time);
+                                $status[] = $this->format_status_group('useraddedtogroup', 'text-success', $courseid, $groupid);
+                            }
+                        }
+
+                        if (method_exists($context, 'mark_dirty')) {
+                            // Moodle >= 2.2
+                            $context->mark_dirty();
+                        } else {
+                            // Moodle <= 2.1
+                            mark_context_dirty($context->path);
+                        }
+                    }
+                    if ($enrol = $this->get_enrol($courseid, $role->id, $user->id, $time)) {
+                        $this->get_user_enrolment($enrol->id, $user->id, $time);
+                    }
+                }
+                if (function_exists('groups_cache_groupdata')) {
+                    groups_cache_groupdata($courseid); // Moodle >= 3.0
+                }
+            } else {
+                $status[] = $this->format_status('coursemissing', 'text-danger');
+            }
+        }
+        return implode('<br>', $status);
+    }
+
+    /**
+     * format_status_user
+     */
+    public function format_status_user($stringname, $class, $userid) {    
+        $url = new moodle_url('/user/profile.php', array('id' => $userid));
+        return $this->format_status($stringname, $class, $url);
+    }
+
+    /**
+     * format_status_course
+     */
+    public function format_status_course($stringname, $class, $courseid) {    
+        $url = new moodle_url('/course/view.php', array('id' => $courseid));
+        return $this->format_status($stringname, $class, $url);
+    }
+
+    /**
+     * format_status_group
+     */
+    public function format_status_group($stringname, $class, $courseid, $groupid) {    
+        $url = new moodle_url('/group/group.php', array('id' => $groupid, 'courseid' => $courseid));
+        return $this->format_status($stringname, $class, $url);
     }
 
     /**
      * format_status
      */
-    public function format_status($stringname, $class, $userid=0) {    
+    public function format_status($stringname, $class, $url=null) {    
         $status = get_string($stringname, $this->tool);
-        $status = html_writer::tag('span', $status, array('class' => $class));
-        if ($userid) {
-            $url = new moodle_url('/user/profile.php', array('id' => $userid));
+        $status = html_writer::tag('small', $status, array('class' => $class));
+        if ($url) {
             $status = html_writer::link($url, $status, array('onclick' => "this.target='importusers'"));
         }
         return $status;
@@ -1132,208 +1220,6 @@ class tool_importusers_form extends moodleform {
             shuffle($chars);
         }
         return implode('', $chars);
-    }
-
-    /**
-     * fix_enrolments
-     *
-     * @param integer $userid
-     */
-    public function fix_enrolments($data, $user, $time) {
-        global $CFG, $DB;
-
-        if ($data->resetgrades) {
-            $this->reset_grades($user);
-        }
-        if ($data->resetbadges) {
-            $this->reset_badges($user);
-        }
-        if ($data->resetcompetencies) {
-            $this->reset_competencies($user);
-        }
-        if ($data->cancelenrolments) {
-            enrol_user_delete($user); // lib/enrollib.php
-        }
-        if ($data->cancelroles) {
-            role_unassign_all(array('userid' => $user->id)); // lib/accesslib.php
-            $DB->delete_records('groups_members', array('userid' => $user->id));
-        }
-
-        if ($this->allow_student_enrolments==false) {
-            $data->enrolgroups = null;
-        }
-        if ($this->allow_teacher_enrolments==false) {
-            $data->enrolcategory = null;
-        }
-
-        if (empty($data->enrolcourses)) {
-            $courseids = array();
-        } else if (is_array($data->enrolcourses)) {
-            $courseids = $data->enrolcourses;
-            $courseids = array_filter($courseids);
-        } else {
-            $courseids = array($data->enrolcourses);
-        }
-
-        if (empty($data->enrolgroups)) {
-            $groups = array();
-        } else {
-            if (is_array($data->enrolgroups)) {
-                // TODO: convert numeric groupids to corresponding groupname
-                $groups = array();
-            } else {
-                $groups = explode(',', $data->enrolgroups);
-                $groups = array_map('trim', $groups);
-                $groups = array_filter($groups);
-            }
-        }
-
-        $courseformats = get_sorted_course_formats(true);
-        $courseformats = array_flip($courseformats);
-
-        foreach ($courseids as $courseid) {
-            if ($role = $this->get_role_record('student')) {
-                if ($context = self::context(CONTEXT_COURSE, $courseid)) {
-                    $this->get_role_assignment($context->id, $role->id, $user->id, $time);
-                    foreach ($groups as $group) {
-                        if ($groupid = $this->get_groupid($courseid, $group, $time)) {
-                            $this->get_group_memberid($groupid, $user->id, $time);
-                        }
-                    }
-                    if (method_exists($context, 'mark_dirty')) {
-                        // Moodle >= 2.2
-                        $context->mark_dirty();
-                    } else {
-                        // Moodle <= 2.1
-                        mark_context_dirty($context->path);
-                    }
-                }
-                if ($enrol = $this->get_enrol($courseid, $role->id, $user->id, $time)) {
-                    $this->get_user_enrolment($enrol->id, $user->id, $time);
-                }
-            }
-            if (function_exists('groups_cache_groupdata')) {
-                groups_cache_groupdata($courseid); // Moodle >= 3.0
-            }
-        }
-
-        $category = '';
-        if ($data->enrolcategory) {
-
-            // set course shortname
-            if ($data->doublebyte) {
-                $shortname = mb_convert_kana($user->username, 'AS', 'UTF-8');
-            } else {
-                $shortname = $user->username;
-            }
-            $fullname = $this->get_multilang_string('courseforuser', $this->tool, $shortname);
-
-            // should we reset the format and numsections for this this course?
-            if ($DB->record_exists('course', array('shortname' => $shortname))) {
-                $set_format_and_numsections = false;
-            } else {
-                $set_format_and_numsections = true;
-            }
-
-            if ($courseid = $this->get_user_courseid($data->enrolcategory, $shortname, $fullname, $time)) {
-                if ($context = self::context(CONTEXT_COURSE, $courseid)) {
-
-                    // enrol new $user as an "editingteacher"
-                    if ($role = $this->get_role_record('editingteacher')) {
-                        $this->get_role_assignment($context->id, $role->id, $user->id, $time);
-                        if (method_exists($context, 'mark_dirty')) {
-                            // Moodle >= 2.2
-                            $context->mark_dirty();
-                        } else {
-                            // Moodle <= 2.1
-                            mark_context_dirty($context->path);
-                        }
-                        if ($enrol = $this->get_enrol($courseid, $role->id, $user->id, $time)) {
-                            $this->get_user_enrolment($enrol->id, $user->id, $time);
-                        }
-                    }
-
-                    // enrol "student" users
-                    if ($role = $this->get_role_record('student')) {
-                        if (empty($data->enrolstudents)) {
-                            $userids = array();
-                        } else if (is_array($data->enrolstudents)) {
-                            $userids = $data->enrolstudents;
-                            $userids = array_filter($userids);
-                        } else {
-                            $userids = array($data->enrolstudents);
-                        }
-                        foreach ($userids as $userid) {
-                            $this->get_role_assignment($context->id, $role->id, $userid, $time);
-                            if (method_exists($context, 'mark_dirty')) {
-                                // Moodle >= 2.2
-                                $context->mark_dirty();
-                            } else {
-                                // Moodle <= 2.1
-                                mark_context_dirty($context->path);
-                            }
-                            if ($enrol = $this->get_enrol($courseid, $role->id, $userid, $time)) {
-                                $this->get_user_enrolment($enrol->id, $userid, $time);
-                            }
-                        }
-                    }
-
-                    // add course files respository
-                    if ($path = preg_replace('/[\/\\\\](\.*[\/\\\\])+/', '/', $data->folderpath)) {
-                        $this->get_repository_instance_id($context, $user->id, "$user->username files", $path, 1, true);
-                    }
-                }
-
-                // remove everything from course
-                if ($data->resetcourses) {
-
-                    // remove all labels, resources and activities
-                    if ($cms = $DB->get_records('course_modules', array('course' => $courseid), '', 'id,course')) {
-                        foreach ($cms as $cm) {
-                            $this->remove_coursemodule($cm->id);
-                        }
-                    }
-
-                    // remove all blocks
-                    $context = self::context(CONTEXT_COURSE, $courseid);
-                    blocks_delete_all_for_context($context->id);
-
-                    // remove all badges
-                    if ($badges = $DB->get_records('badge', array('courseid' => $courseid), '', 'id,courseid')) {
-                        foreach ($badges as $badge) {
-                            $badge = new badge($badge->id);
-                            $badge->delete(false);
-                        }
-                    }
-
-                    // force reset of course format and numsections
-                    $set_format_and_numsections = true;
-                }
-
-                // set course fromat and numsections, if required
-                if ($set_format_and_numsections) {
-                    if (isset($data->courseformat) && array_key_exists($data->courseformat, $courseformats)) {
-                        $DB->set_field('course', 'format', $data->courseformat, array('id' => $courseid));
-                    }
-                    if (isset($data->numsections) && is_numeric($data->numsections)) {
-                        if (function_exists('course_get_format')) {
-                            // Moodle >= 2.3
-                            $options = course_get_format($courseid)->get_format_options();
-                            $options['numsections'] = $data->numsections;
-                            course_get_format($courseid)->update_course_format_options($options);
-                        } else {
-                            // Moodle <= 2.2
-                            $DB->set_field('course', 'numsections', $data->numsections, array('id' => $courseid));
-                        }
-                    }
-                }
-
-                // format link to course
-                $url = new moodle_url('/course/view.php', array('id' => $courseid));
-                $category = html_writer::link($url, $shortname, array('target' => '_blank'));
-            }
-        }
-        return $category;
     }
 
     /**
@@ -1467,10 +1353,11 @@ class tool_importusers_form extends moodleform {
      *
      * @param integer $courseid
      * @param string  $name
+     * @param string  $description
      * @param integer $time
      * @return integer id of group record if one exists, FALSE otherwise
      */
-    public function get_groupid($courseid, $name, $time) {
+    public function get_groupid($courseid, $name, $description, $time) {
         global $DB;
         if ($id = $DB->get_field('groups', 'id', array('courseid' => $courseid, 'name' => $name))) {
             return $id;
@@ -1479,7 +1366,7 @@ class tool_importusers_form extends moodleform {
         $group = (object)array(
             'courseid'     => $courseid,
             'name'         => $name,
-            'description'  => '',
+            'description'  => $description,
             'descriptionformat' => FORMAT_MOODLE,
             'enrolmentkey' => '',
             'timecreated'  => $time,
