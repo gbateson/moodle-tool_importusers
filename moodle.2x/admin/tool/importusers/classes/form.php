@@ -832,14 +832,37 @@ class tool_importusers_form extends moodleform {
                 }
             }
         }
+
+        // add field name and descriptions to header row
         if (empty($table->head) && count($table->data)) {
+
+            // cache often-used values
+            $search = '/^(course|groups)\d+_(.*)/';
+            $params = array('style' => 'font-weight: normal;');
+
             $table->head = array_keys($table->data[0]);
             foreach ($table->head as $i => $head) {
-                if ($head=='row') {
+                if ($head == 'row') {
                     $table->head[$i] = get_string($head, $this->tool);
                 } else {
-                    $head = preg_replace('/^(course|groups)\d+_/', '', $head);
-                    $table->head[$i] .= '<br><small style="font-weight: normal;">'.get_string($head).'</small>';;
+                    if (preg_match($search, $head, $match)) {
+                        if ($match[1] == 'course') {
+                            // course fields
+                            $head = get_string($match[2]);
+                        } else {
+                            // group fields
+                            if ($match[2] == 'name' || $match[2] == 'description') {
+                                $head = get_string('group'.$match[2], 'group');
+                            } else {
+                                $head = get_string($match[2], 'group');
+                            }
+                        }
+                    } else {
+                        // user fields
+                        $head = get_string($head);
+                    }
+                    $head = html_writer::tag('small', $head, $params);
+                    $table->head[$i] .= '<br>'.$head;
                 }
             }
         }
