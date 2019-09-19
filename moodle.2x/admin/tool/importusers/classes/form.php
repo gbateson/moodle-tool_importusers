@@ -1012,7 +1012,7 @@ class tool_importusers_form extends moodleform {
      * import_user
      */
     public function import_user($data) {
-        global $CFG, $DB, $USER;
+        global $CFG, $DB;
 
         $time = time();
         $status = array();
@@ -1027,7 +1027,7 @@ class tool_importusers_form extends moodleform {
             }
         } else {
             if ($action == self::ACTION_UPDATE_EXISTING) {
-                return $this->format_status('usermissing', 'text-warning');
+                return $this->format_status('missinguser', 'text-warning');
             }
             $update = true;
             $user = (object)array(
@@ -1122,68 +1122,124 @@ class tool_importusers_form extends moodleform {
         }
 
         if (empty($user->id)) {
-            if ($user->id = $DB->insert_record('user', $user)) {
-                $status[] = $this->format_status_user('useradded', 'text-success', $user->id);
-            } else {
-                return $this->format_status('usernotadded', 'text-danger');
+            if (! $user->id = $DB->insert_record('user', $user)) {
+                return $this->format_status('erroraddinguser', 'text-danger');
             }
+            $status[] = $this->format_status_user('addedusertosite', 'text-success', $user->id);
         } else if ($update) {
             $DB->update_record('user', $user);
             $status[] = $this->format_status_user('userupdated', 'text-success', $user->id);
         }
 
+        $courseids = array();
+
         $search = '/^course\d+_shortname$/';
         $shortnames = preg_grep($search, array_keys($data));
         foreach ($shortnames as $shortname) {
 
+            // fetch course id
             $params = array('shortname' => $data[$shortname]);
-            if ($courseid = $DB->get_records('course', $params, 'id', 'id,shortname')) {
-                $courseid = reset($courseid)->id;
+            if (! $courseid = $DB->get_records('course', $params, 'id', 'id,shortname')) {
+                $status[] = $this->format_status('missingcourse', 'text-danger');
+                continue;
+            }
+            $courseid = reset($courseid)->id;
+            $courseids[$courseid] = 1;
 
-                // enrol in this course
-                if ($role = $this->get_role_record('student')) {
-                    if ($context = self::context(CONTEXT_COURSE, $courseid)) {
-                        $this->get_role_assignment($context->id, $role->id, $user->id, $time);
+            // fetch course context
+            if (! $context = self::context(CONTEXT_COURSE, $courseid)) {
+                $status[] = $this->format_status('missingcoursecontext', 'text-danger');
+                continue;
+            }
 
-                        $status[] = $this->format_status_course('userenrolled', 'text-success', $courseid);
+            // add student role
+            if (! $role = $this->get_role('student')) {
+                $status[] = $this->format_status('erroraddingstudentrole', 'text-danger');
+                continue;
+            }
+            if (isset($role->added)) {
+                $status[] = $this->format_status('addedstudentrole', 'text-danger');
+            }
 
-                        $i = substr($shortname, 6, -10);
-                        $search = '/^groups'.$i.'_name$/';
-                        $names = preg_grep($search, array_keys($data));
-                        foreach ($names as $name) {
-                            $name = $data[$name];
-                            $description = 'groups'.$i.'_description';
-                            if (empty($data[$description])) {
-                                $description = '';
-                            } else {
-                                $description = $data[$description];
-                            }
-                            if ($groupid = $this->get_groupid($courseid, $name, $description, $time)) {
-                                $this->get_group_memberid($groupid, $user->id, $time);
-                                $status[] = $this->format_status_group('useraddedtogroup', 'text-success', $courseid, $groupid);
-                            }
-                        }
+            // assign student role
+            if (! $role_assignment = $this->get_role_assignment($context->id, $role->id, $user->id, $time)) {
+                $status[] = $this->format_status('errorassigningstudentrole', 'text-danger');
+                continue;
+            }
+            if (isset($role_assignment->added)) {
+                $status[] = $this->format_status('assignedstudentrole', 'text-success');
+            }
 
-                        if (method_exists($context, 'mark_dirty')) {
-                            // Moodle >= 2.2
-                            $context->mark_dirty();
-                        } else {
-                            // Moodle <= 2.1
-                            mark_context_dirty($context->path);
-                        }
-                    }
-                    if ($enrol = $this->get_enrol($courseid, $role->id, $user->id, $time)) {
-                        $this->get_user_enrolment($enrol->id, $user->id, $time);
-                    }
+            // process groups
+            $i = substr($shortname, 6, -10);
+            $search = '/^groups'.$i.'_name$/';
+            $names = preg_grep($search, array_keys($data));
+            foreach ($names as $name) {
+                $name = $data[$name];
+                $description = 'groups'.$i.'_description';
+                if (empty($data[$description])) {
+                    $description = '';
+                } else {
+                    $description = $data[$description];
                 }
-                if (function_exists('groups_cache_groupdata')) {
-                    groups_cache_groupdata($courseid); // Moodle >= 3.0
+                // fetch group
+                if (! $group = $this->get_group($courseid, $name, $description, $time)) {
+                    $status[] = $this->format_status('erroraddinggroup', 'text-danger');
+                    continue;
                 }
+                if (isset($group->added)) {
+                    $status[] = $this->format_status_group('addedgroup', 'text-success', $courseid, $group->id);
+                }
+                // add user to group
+                if (! $member = $this->get_group_member($group->id, $user->id, $time)) {
+                    $status[] = $this->format_status_group('erroraddingusertogroup', 'text-danger', $courseid, $group->id);
+                    continue;
+                }
+                if (isset($member->added)) {
+                    $status[] = $this->format_status_group('addedusertogroup', 'text-success', $courseid, $group->id);
+                } else {
+                    $status[] = $this->format_status_group('useralreadyingroup', 'text-success', $courseid, $group->id);
+                }
+            }
+
+            if (method_exists($context, 'mark_dirty')) {
+                // Moodle >= 2.2
+                $context->mark_dirty();
             } else {
-                $status[] = $this->format_status('coursemissing', 'text-danger');
+                // Moodle <= 2.1
+                mark_context_dirty($context->path);
+            }
+
+            // get manual enrolment instance for this course
+            $authmethod = optional_param('chooseauthmethod', 'manual', PARAM_ALPHANUM);
+            if (! $enrol = $this->get_enrol($courseid, $role->id, $user->id, $time, $authmethod)) {
+                $status[] = $this->format_status('erroraddingenrolmethod', 'text-danger');
+                continue;
+            }
+            if (isset($enrol->added)) {
+                $status[] = $this->format_status_course('addedenrolmethod', 'text-success', $courseid);
+            }
+
+            // enrol the user in this course
+            if (! $user_enrolment = $this->get_user_enrolment($enrol->id, $user->id, $time)) {
+                $status[] = $this->format_status('errorenrollinguser', 'text-danger');
+                continue;
+            }
+            if (isset($user_enrolment->added)) {
+                $status[] = $this->format_status_course('userenrolled', 'text-success', $courseid);
+            } else {
+                $status[] = $this->format_status_course('useralreadyenrolled', 'text-success', $courseid);
             }
         }
-        return implode('<br>', $status);
+
+        // update group cache on Moodle >= 3.0
+        if (function_exists('groups_cache_groupdata')) {
+            foreach ($courseids as $courseid) {
+                groups_cache_groupdata($courseid);
+            }
+        }
+
+        return html_writer::alist($status, array('class' => 'list-status-messages'));
     }
 
     /**
@@ -1217,7 +1273,8 @@ class tool_importusers_form extends moodleform {
         $status = get_string($stringname, $this->tool);
         $status = html_writer::tag('small', $status, array('class' => $class));
         if ($url) {
-            $status = html_writer::link($url, $status, array('onclick' => "this.target='importusers'"));
+            $params = array('onclick' => "this.target='importusers'");
+            $status = html_writer::link($url, $status, $params);
         }
         return $status;
     }
@@ -1246,38 +1303,20 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * get_role_record
+     * get_role
      *
      * @param string $name
      * @return object or boolean (FALSE)
      */
-    public function get_role_record($name) {
-        global $DB;
-
-        if ($role = $DB->get_record('role', array('shortname' => $name))) {
-            return $role;
-        }
-
-        // create new $role record for this $name
-        if ($sortorder = $DB->get_field('role', 'MAX(sortorder)', array())) {
-            $sortorder ++;
-        } else {
-            $sortorder = 1;
-        }
-        $role = (object)array(
-            'name'        => $name,
-            'shortname'   => $name,
-            'description' => $name,
-            'sortorder'   => $sortorder,
-            'archetype'   => $name
-        );
-
-        if ($role->id = $DB->insert_record('role', $role)) {
-            return $role;
-        }
-
-        // could not create role record !!
-        return false;
+    public function get_role($name) {
+        $table = 'role';
+        $params = array('shortname' => $name);
+        $values = array('name'        => $name,
+                        'shortname'   => $name,
+                        'description' => $name,
+                        'sortorder'   => 0,
+                        'archetype'   => $name);
+        return $this->get_record($table, $params, $values);
     }
 
     /**
@@ -1289,24 +1328,18 @@ class tool_importusers_form extends moodleform {
      * @param integer $time
      * @return object or boolean (FALSE)
      */
-    public function get_enrol($courseid, $roleid, $userid, $time) {
-        global $DB;
-        $params = array('enrol' => 'manual', 'courseid' => $courseid, 'roleid' => $roleid);
-        if ($record = $DB->get_record('enrol', $params)) {
-            return $record;
-        }
-        $record = (object)array(
-            'enrol'        => 'manual',
-            'courseid'     => $courseid,
-            'roleid'       => $roleid,
-            'modifierid'   => $userid,
-            'timecreated'  => $time,
-            'timemodified' => $time
-        );
-        if ($record->id = $DB->insert_record('enrol', $record)) {
-            return $record;
-        }
-        return false;
+    public function get_enrol($courseid, $roleid, $userid, $time, $authmethod='manual') {
+        $table = 'enrol';
+        $params = array('enrol' => $authmethod,
+                        'roleid' => $roleid,
+                        'courseid' => $courseid);
+        $values = array('enrol'        => $authmethod,
+                        'roleid'       => $roleid,
+                        'courseid'     => $courseid,
+                        'modifierid'   => $userid,
+                        'timecreated'  => $time,
+                        'timemodified' => $time);
+        return $this->get_record($table, $params, $values);
     }
 
     /**
@@ -1319,22 +1352,17 @@ class tool_importusers_form extends moodleform {
      * @return boolean TRUE  if a new role_assignment was created, FALSE otherwise
      */
     public function get_role_assignment($contextid, $roleid, $userid, $time) {
-        global $DB, $USER;
-        $params = array('roleid' => $roleid, 'contextid' => $contextid, 'userid' => $userid);
-        if ($record = $DB->get_record('role_assignments', $params)) {
-            return $record;
-        }
-        $record = (object)array(
-            'roleid'       => $roleid,
-            'contextid'    => $contextid,
-            'userid'       => $userid,
-            'modifierid'   => $USER->id,
-            'timemodified' => $time
-        );
-        if ($record->id = $DB->insert_record('role_assignments', $record)) {
-            return $record;
-        }
-        return false; // shouldn't happen !!
+        global $USER;
+        $table = 'role_assignments';
+        $params = array('roleid' => $roleid,
+                        'userid' => $userid,
+                        'contextid' => $contextid);
+        $values = array('roleid'       => $roleid,
+                        'contextid'    => $contextid,
+                        'userid'       => $userid,
+                        'modifierid'   => $USER->id,
+                        'timemodified' => $time);
+        return $this->get_record($table, $params, $values);
     }
 
     /**
@@ -1343,81 +1371,103 @@ class tool_importusers_form extends moodleform {
      * @param integer $enrolid
      * @param integer $userid to be enrolled
      * @param integer $time
-     * @return boolean TRUE if a new role_assignment was created, FALSE otherwise
+     * @return mixed  object if user enrolment was found or created; otherwise FALSE
      */
     public function get_user_enrolment($enrolid, $userid, $time) {
-        global $DB, $USER;
-        $params = array('enrolid' => $enrolid, 'userid' => $userid);
-        if ($record = $DB->get_record('user_enrolments', $params)) {
-            $record->timestart = $time;
-            $record->timeend = 0;
-            if ($DB->update_record('user_enrolments', $record)) {
-                return $record;
-            }
-        } else {
-            $record = (object)array(
-                'enrolid'      => $enrolid,
-                'userid'       => $userid,
-                'modifierid'   => $USER->id,
-                'timestart'    => $time,
-                'timeend'      => 0,
-                'timecreated'  => $time,
-                'timemodified' => $time
-            );
-            if ($record->id = $DB->insert_record('user_enrolments', $params)) {
-                return $record;
-            }
-        }
-        return false;
+        global $USER;
+        $table = 'user_enrolments';
+        $params = array('userid' => $userid,
+                        'enrolid' => $enrolid);
+        $values = array('userid'       => $userid,
+                        'enrolid'      => $enrolid,
+                        'modifierid'   => $USER->id,
+                        'timestart'    => $time,
+                        'timeend'      => 0,
+                        'timecreated'  => $time,
+                        'timemodified' => $time);
+        $update = array('timestart' => $time,
+                        'timeend' => 0);
+        return $this->get_record($table, $params, $values, $update);
     }
 
     /**
-     * get_groupid
+     * get_group
      *
      * @param integer $courseid
      * @param string  $name
      * @param string  $description
      * @param integer $time
-     * @return integer id of group record if one exists, FALSE otherwise
+     * @return mixed  object if group was found or created; otherwise FALSE
      */
-    public function get_groupid($courseid, $name, $description, $time) {
-        global $DB;
-        if ($id = $DB->get_field('groups', 'id', array('courseid' => $courseid, 'name' => $name))) {
-            return $id;
-        }
-        // add new group for this course
-        $group = (object)array(
-            'courseid'     => $courseid,
-            'name'         => $name,
-            'description'  => $description,
-            'descriptionformat' => FORMAT_MOODLE,
-            'enrolmentkey' => '',
-            'timecreated'  => $time,
-            'timemodified' => $time
-        );
-        return $DB->insert_record('groups', $group);
+    public function get_group($courseid, $name, $description, $time) {
+        $table = 'groups';
+        $params = array('name' => $name,
+                        'courseid' => $courseid);
+        $values = array('name'         => $name,
+                        'courseid'     => $courseid,
+                        'description'  => $description,
+                        'descriptionformat' => FORMAT_MOODLE,
+                        'enrolmentkey' => '',
+                        'timecreated'  => $time,
+                        'timemodified' => $time);
+        return $this->get_record($table, $params, $values);
     }
 
     /**
-     * get_group_memberid
+     * get_group_member
      *
      * @param integer $groupid
      * @param integer $userid
      * @param integer $time
-     * @return boolean TRUE  if a new group was created, FALSE otherwise
+     * @return mixed  object if group member was found or created; otherwise FALSE
      */
-    public function get_group_memberid($groupid, $userid, $time) {
+    public function get_group_member($groupid, $userid, $time) {
+        $table = 'groups_members';
+        $params = array('groupid' => $groupid,
+                        'userid' => $userid);
+        $values = array('groupid'  => $groupid,
+                        'userid'   => $userid,
+                        'timeadded' => $time);
+        return $this->get_record($table, $params, $values);
+    }
+
+    /**
+     * get_record
+     *
+     * @param string $table
+     * @param array  $params
+     * @param array  $values
+     * @param array  $update (optional, default=array())
+     * @return mixed  object if record was created; otherwise FALSE
+     */
+    public function get_record($table, $params, $values, $update=array()) {
         global $DB;
-        if ($id = $DB->get_field('groups_members', 'id', array('groupid' => $groupid, 'userid' => $userid))) {
-            return $id;
+
+        // fetch existing record, if it exists
+        if ($record = $DB->get_record($table, $params)) {
+            foreach ($update as $name => $value) {
+                $record->$name = $value;
+            }
+            return $record;
         }
-        // add new member for this group
-        $member = (object)array(
-            'groupid'  => $groupid,
-            'userid'   => $userid,
-            'timeadded' => $time
-        );
-        return $DB->insert_record('groups_members', $member);
+
+        // update sortorder (not usually necessary)
+        if (key_exists('sortorder', $values)) {
+            if ($sortorder = $DB->get_field($table, 'MAX(sortorder)', array())) {
+                $values['sortorder'] = ($sortorder + 1);
+            } else {
+                $values['sortorder'] = 1;
+            }
+        }
+
+        // add new record
+        if ($values['id'] = $DB->insert_record($table, $values)) {
+            $values['added'] = true;
+            return (object)$values;
+        }
+
+        // could not add new record - shoudn't happen !!
+        return false;
     }
 
     /**
