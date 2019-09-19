@@ -27,6 +27,7 @@
 
 .path-admin-tool-importusers .tool_importusers thead { background-color: #eeeeff; } /* pale blue */
 .path-admin-tool-importusers .tool_importusers caption { font-size: 20px; font-weight: normal; }
+.path-admin-tool-importusers .tool_importusers .list-status-messages { font-size: small; min-width: 140px; }
 
 /*
 .path-admin-tool-importusers tool_importusers tr.headings { background-color: #eebbee; }
