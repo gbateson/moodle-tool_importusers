@@ -1128,7 +1128,7 @@ class tool_importusers_form extends moodleform {
             $status[] = $this->format_status_user('addedusertosite', 'text-success', $user->id);
         } else if ($update) {
             $DB->update_record('user', $user);
-            $status[] = $this->format_status_user('userupdated', 'text-success', $user->id);
+            $status[] = $this->format_status_user('userupdated', 'text-info', $user->id);
         }
 
         $courseids = array();
@@ -1198,7 +1198,7 @@ class tool_importusers_form extends moodleform {
                 if (isset($member->added)) {
                     $status[] = $this->format_status_group('addedusertogroup', 'text-success', $courseid, $group->id);
                 } else {
-                    $status[] = $this->format_status_group('useralreadyingroup', 'text-success', $courseid, $group->id);
+                    $status[] = $this->format_status_group('useralreadyingroup', 'text-info', $courseid, $group->id);
                 }
             }
 
@@ -1228,7 +1228,7 @@ class tool_importusers_form extends moodleform {
             if (isset($user_enrolment->added)) {
                 $status[] = $this->format_status_course('userenrolled', 'text-success', $courseid);
             } else {
-                $status[] = $this->format_status_course('useralreadyenrolled', 'text-success', $courseid);
+                $status[] = $this->format_status_course('useralreadyenrolled', 'text-info', $courseid);
             }
         }
 
