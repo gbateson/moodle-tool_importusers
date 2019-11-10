@@ -426,35 +426,44 @@ class tool_importusers_form extends moodleform {
         $this->get_formatfileinfo($fs, $context, $formatfilename, $formatfilecontent);
         $format = $this->parse_format_xml($formatfilecontent);
 
-        $table = new html_table();
-        $table->head = array();
-        $table->data = array();
+        if (is_string($format)) {
+            $table = $format;
+        } else {
+            $table = new html_table();
+            $table->head = array();
+            $table->data = array();
 
-        if ($datafilepath && $format) {
-            $reader = PHPExcel_IOFactory::createReaderForFile($datafilepath);
-            $workbook = $reader->load($datafilepath);
+            if ($datafilepath) {
+                $reader = PHPExcel_IOFactory::createReaderForFile($datafilepath);
+                $workbook = $reader->load($datafilepath);
 
-            $table->tablealign = 'center';
-            $table->id = $this->tool.'_'.$this->formstate;
-            $table->attributes['class'] = 'generaltable '.$this->tool;
-            $table->summary = get_string($this->formstate, $this->tool);
-            $table->caption = $this->render_caption($datafilename, $workbook);
+                $table->tablealign = 'center';
+                $table->id = $this->tool.'_'.$this->formstate;
+                $table->attributes['class'] = 'generaltable '.$this->tool;
+                $table->summary = get_string($this->formstate, $this->tool);
+                $table->caption = $this->render_caption($datafilename, $workbook);
 
-            $populate_table = 'populate_'.$this->formstate.'_table';
-            $this->$populate_table($workbook, $format, $table);
+                $populate_table = 'populate_'.$this->formstate.'_table';
+                $this->$populate_table($workbook, $format, $table);
+            }
+
+            if (empty($table->data)) {
+                // No data found - shouldn't happen!!
+                $table = get_string('emptydatafile', $this->tool);
+            }
+        }
+
+        if (is_object($table)) {
+            $table = html_writer::table($table);
+            $table = html_writer::tag('div', $table, array('class' => 'flexible-wrap'));
+        } else {
+            $table = html_writer::tag('p', $table).
+                     html_writer::tag('p', get_string('tryagain', $this->tool));
+            $table = html_writer::tag('div', $table, array('class' => 'alert alert-warning'));
         }
 
         if ($datafilepath) {
             unlink($datafilepath);
-        }
-
-        if (count($table->data)) {
-            $table = html_writer::table($table);
-            $table = html_writer::tag('div', $table, array('class' => 'flexible-wrap'));
-        } else {
-            // No data found - shouldn't happen!!
-            $table = get_string('emptydatafile', $this->tool);
-            $table =  html_writer::tag('div', $table, array('class' => 'alert alert-warning'));
         }
 
         return $table;
@@ -514,13 +523,27 @@ class tool_importusers_form extends moodleform {
         require_once($CFG->dirroot.'/lib/xmlize.php');
 
         if (empty($formatfilecontent)) {
-            return null;
+            return get_string('emptyxmlfile', $this->tool);
         }
 
         $xml = xmlize($formatfilecontent);
         if (empty($xml)) {
-            return null;
+            return get_string('invalidxmlfile', $this->tool);
+        }
 
+        $name = 'importusersfile';
+        if (empty($xml[$name]) || empty($xml[$name]['#'])) {
+            return get_string('xmltagmissing', $this->tool, $name);
+        }
+
+        $name = 'sheets';
+        if (empty($xml['importusersfile']['#'][$name])) {
+            return get_string('xmltagmissing', $this->tool, $name);
+        }
+
+        $name = 'fields';
+        if (empty($xml['importusersfile']['#'][$name])) {
+            return get_string('xmltagmissing', $this->tool, $name);
         }
 
         // initialize the $format object

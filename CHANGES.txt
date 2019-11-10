@@ -2,50 +2,50 @@
 Change log for tool_importusers
 ========================================
 
-2019-09-19 (09)
- -  use .text-info class for status messages about unchanged or updated records 
+2019-11-10 (12)
+ - standardize layout and spelling in CHANGES.txt
 
 2019-09-19 (09)
- -  tidy up messages about actions taken during import of formatted data 
+ - use .text-info class for status messages about unchanged or updated records
+
+2019-09-19 (09)
+ - tidy up messages about actions taken during import of formatted data
 
 2019-09-18 (08)
- -  add group name/description to table header 
+ - add group name/description to table header
 
 2019-09-18 (08)
- -  remove unused code from form.php 
+ - remove unused code from form.php
 
 2019-09-17 (07)
- -  new functionality to enrol users into required courses and groups 
+ - new functionality to enrol users into required courses and groups
 
 2019-09-15 (05)
- -  finish importing of user data. TODO enrol in courses and groups 
+ - finish importing of user data. TODO enrol in courses and groups
 
 2019-09-15 (05)
- -  share code to populate review/import tables 
-
-2019-09-15 (05)
- -  share code to populate review/import tables 
+ - share code to populate review/import tables
 
 2019-09-13 (04)
- -  implement converstion of field definitions to import values for each record 
+ - implement converstion of field definitions to import values for each record
 
 2019-09-13 (03)
- -  preliminary version of review page to display first lines of formatted data 
+ - preliminary version of review page to display first lines of formatted data
 
 2019-09-11 (02)
- -  use format file to retrieve preview rows 
+ - use format file to retrieve preview rows
 
 2019-09-09 (01)
- -  reimplement code to parse XML in format file 
+ - reimplement code to parse XML in format file
 
 2019-09-09 (01)
- -  improve parsing of XML in format file 
+ - improve parsing of XML in format file
 
 2019-09-09 (01)
- -  allow upload of XML file to spcify format of data file content. 
+ - allow upload of XML file to spcify format of data file content.
 
 2019-09-09 (01)
- -  enable preview of first 10 lines from import file 
+ - enable preview of first 10 lines from import file
 
 2019-09-01 (00)
- -  preliminary version of new tool to import users from an Excel file 
+ - preliminary version of new tool to import users from an Excel file
