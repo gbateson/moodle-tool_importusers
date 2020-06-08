@@ -2,6 +2,9 @@
 Change log for tool_importusers
 ========================================
 
+2020-06-08 (14)
+ - fix access to PhpExcel library in Moodle >= 3.8
+
 2019-11-10 (12)
  - standardize layout and spelling in CHANGES.txt
 
@@ -37,14 +40,8 @@ Change log for tool_importusers
 
 2019-09-09 (01)
  - reimplement code to parse XML in format file
-
-2019-09-09 (01)
  - improve parsing of XML in format file
-
-2019-09-09 (01)
  - allow upload of XML file to spcify format of data file content.
-
-2019-09-09 (01)
  - enable preview of first 10 lines from import file
 
 2019-09-01 (00)

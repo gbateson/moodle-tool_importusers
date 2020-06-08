@@ -67,11 +67,13 @@ class tool_importusers_form extends moodleform {
     protected $uppercase = null;
 
     protected $formstate = '';
+    protected $phpspreadsheet = null;
 
     /**
      * constructor
      */
     public function __construct($action=null, $customdata=null, $method='post', $target='', $attributes=null, $editable=true) {
+        global $CFG;
 
         $this->numeric   = array_flip(str_split('23456789', 1));
         $this->lowercase = array_flip(str_split('abdeghjmnpqrstuvyz', 1));
@@ -85,6 +87,9 @@ class tool_importusers_form extends moodleform {
         } else {
             $this->formstate = reset($states);
         }
+
+        // check for new PhpExcel (Moodle >= 3.8)
+        $this->phpspreadsheet = file_exists($CFG->dirroot.'/lib/phpspreadsheet');
 
         if (method_exists('moodleform', '__construct')) {
             parent::__construct($action, $customdata, $method, $target, $attributes, $editable);
@@ -146,10 +151,10 @@ class tool_importusers_form extends moodleform {
                 $mform->setType($name, PARAM_ALPHA);
 
                 // transfer values from "upload" form
-                $names = array('datafile' => PARAM_INT,
-                               'formatfile' => PARAM_INT,
-                               'previewrows' => PARAM_INT);
-                $this->transfer_incoming_values($mform, $names);
+                $values = array('datafile' => PARAM_INT,
+                                'formatfile' => PARAM_INT,
+                                'previewrows' => PARAM_INT);
+                $this->transfer_incoming_values($mform, $values);
 
                 $this->add_heading($mform, 'settings', 'moodle', true);
 
@@ -287,7 +292,7 @@ class tool_importusers_form extends moodleform {
                 }
 
                 $submit = 'review';
-                $cancel = 'back';;
+                $cancel = 'back';
                 break;
 
             case 'review':
@@ -298,23 +303,23 @@ class tool_importusers_form extends moodleform {
                 $mform->setType($name, PARAM_ALPHA);
 
                 // transfer values from "upload" form
-                $names = array('datafile' => PARAM_INT,
-                               'formatfile' => PARAM_INT,
-                               'previewrows' => PARAM_INT,
-                               'uploadaction' => PARAM_INT,
-                               'passwordaction' => PARAM_INT,
-                               'passwordactiontext' => PARAM_TEXT,
-                               'sendpassword' => PARAM_INT,
-                               'changepassword' => PARAM_INT,
-                               'fixusernames' => PARAM_INT,
-                               'selectusers' => PARAM_INT,
-                               'chooseauthmethod' => PARAM_ALPHANUM,
-                               'timezone' => PARAM_TEXT,
-                               'lang' => PARAM_ALPHANUM,
-                               'calendar' => PARAM_ALPHANUM,
-                               'description[text]' => PARAM_TEXT,
-                               'description[format]' => PARAM_INT);
-                $this->transfer_incoming_values($mform, $names);
+                $values = array('datafile' => PARAM_INT,
+                                'formatfile' => PARAM_INT,
+                                'previewrows' => PARAM_INT,
+                                'uploadaction' => PARAM_INT,
+                                'passwordaction' => PARAM_INT,
+                                'passwordactiontext' => PARAM_TEXT,
+                                'sendpassword' => PARAM_INT,
+                                'changepassword' => PARAM_INT,
+                                'fixusernames' => PARAM_INT,
+                                'selectusers' => PARAM_INT,
+                                'chooseauthmethod' => PARAM_ALPHANUM,
+                                'timezone' => PARAM_TEXT,
+                                'lang' => PARAM_ALPHANUM,
+                                'calendar' => PARAM_ALPHANUM,
+                                'description[text]' => PARAM_TEXT,
+                                'description[format]' => PARAM_INT);
+                $this->transfer_incoming_values($mform, $values);
 
                 $submit = 'import';
                 $cancel = 'back';
@@ -343,8 +348,8 @@ class tool_importusers_form extends moodleform {
         return $this->formstate;
     }
 
-    public function transfer_incoming_values($mform, $names) {
-        foreach ($names as $name => $type) {
+    public function transfer_incoming_values($mform, $values) {
+        foreach ($values as $name => $type) {
             if ($type==PARAM_INT) {
                 $default = 0;
             } else {
@@ -411,8 +416,17 @@ class tool_importusers_form extends moodleform {
     public function render_user_table() {
         global $CFG, $USER;
 
-        // get the main PHPExcel object
-        require_once($CFG->dirroot.'/lib/phpexcel/PHPExcel/IOFactory.php');
+        // get the path to main PHPExcel file and object
+        if ($this->phpspreadsheet) {
+            // Moodle >= 3.8
+            $phpexcel_filepath = $CFG->dirroot.'/lib/phpspreadsheet/vendor/autoload.php';
+            $phpexcel_iofactory = '\\PhpOffice\\PhpSpreadsheet\\IOFactory';
+        } else {
+            // Moodle 2.5 - 3.7
+            $phpexcel_filepath = $CFG->dirroot.'/lib/phpexcel/PHPExcel/IOFactory.php';
+            $phpexcel_iofactory = 'PHPExcel_IOFactory';
+        }
+        require_once($phpexcel_filepath);
 
         $fs = get_file_storage();
         $context = self::context(CONTEXT_USER, $USER->id);
@@ -434,7 +448,7 @@ class tool_importusers_form extends moodleform {
             $table->data = array();
 
             if ($datafilepath) {
-                $reader = PHPExcel_IOFactory::createReaderForFile($datafilepath);
+                $reader = $phpexcel_iofactory::createReaderForFile($datafilepath);
                 $workbook = $reader->load($datafilepath);
 
                 $table->tablealign = 'center';
@@ -713,7 +727,7 @@ class tool_importusers_form extends moodleform {
      * render_caption
      */
     public function render_caption($datafilename, $workbook) {
-        $sheetcount = $workbook->getSheetCount();;
+        $sheetcount = $workbook->getSheetCount();
         $rowcount = 0;
         for ($s = 0; $s < $sheetcount; $s++) {
             $rowcount += $workbook->getSheet($s)->getHighestDataRow();
@@ -750,7 +764,7 @@ class tool_importusers_form extends moodleform {
 
                         $cells = array();
                         for ( $c = $cmin; $c <= $cmax; $c++) {
-                            $cells[] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
+                            $cells[] = $this->get_cell_value($worksheet, $c, $r);
                         }
                         switch ($rowtype) {
                             case self::ROW_TYPE_META:
@@ -772,6 +786,14 @@ class tool_importusers_form extends moodleform {
                 }
             }
         }
+    }
+
+    /**
+     * get_cell_value
+     */
+    protected function get_cell_value($worksheet, $c, $r) {
+        $coffset = ($this->phpspreadsheet ? 1 : 0); // column offset
+        return $worksheet->getCellByColumnAndRow($c + $coffset, $r)->getValue();
     }
 
     /**
@@ -802,7 +824,7 @@ class tool_importusers_form extends moodleform {
 
             list($smin, $smax) = $this->get_sheet_range($workbook, $sheet);
 
-            for ( $s = $smin; $s <= $smax; $s++) {
+            for ($s = $smin; $s <= $smax; $s++) {
                 $worksheet = $workbook->setActiveSheetIndex($s - 1);
 
                 $sheetvars = array('sheet_name' => $worksheet->getTitle());
@@ -814,7 +836,7 @@ class tool_importusers_form extends moodleform {
                     if ($rowtype==self::ROW_TYPE_DATA) {
                         for ($r = $rmin; $r <= $rmax; $r++) {
                             foreach ($row->cells->data as $c => $name) {
-                                $sheetvars[$name] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
+                                $sheetvars[$name] = $this->get_cell_value($worksheet, $c, $r);
                             }
                         }
                     }
@@ -828,13 +850,11 @@ class tool_importusers_form extends moodleform {
                     $vars = array();
                     if ($rowtype==self::ROW_TYPE_DATA) {
                         for ($r = $rmin; $r <= $rmax; $r++) {
-
                             $rowvars = array();
                             foreach ($row->cells->data as $c => $name) {
-                                $rowvars[$name] = $worksheet->getCellByColumnAndRow($c, $r)->getValue();
+                                $rowvars[$name] = $this->get_cell_value($worksheet, $c, $r);
                             }
                             $vars = array_merge($filevars, $sheetvars, $rowvars);
-
                             if ($user = $this->format_fields($format->fields, 'user', $vars)) {
                                 $course = $this->format_fields($format->fields, 'course', $vars);
                                 $groups = $this->format_fields($format->fields, 'groups', $vars);
@@ -1116,8 +1136,7 @@ class tool_importusers_form extends moodleform {
                            'firstname', 'middlename', 'lastname',
                            'firstnamephonetic', 'lastnamephonetic', 'alternatename',
                            'icq', 'skype', 'yahoo', 'aim', 'msn', 'phone1', 'phone2',
-                           'institution', 'department',
-                           'address', 'city', 'country',
+                           'institution', 'department', 'address', 'city', 'country',
                            'description', 'descriptionformat',
                            'lang', 'theme', 'timezone');
 
