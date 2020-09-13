@@ -2,6 +2,9 @@
 Change log for tool_importusers
 ========================================
 
+2020-10-13 (13)
+ - skip empty lines in importfile
+
 2020-06-08 (14)
  - fix access to PhpExcel library in Moodle >= 3.8
 

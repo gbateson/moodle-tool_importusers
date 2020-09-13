@@ -815,11 +815,13 @@ class tool_importusers_form extends moodleform {
             $previewrows = optional_param('previewrows', 10, PARAM_INT);
         }
 
+
         $filevars = array();
         foreach ($format->params as $name => $value) {
             $filevars[$name] = $value;
         }
 
+        $seperator = get_string('labelsep', 'langconfig');
         foreach ($format->sheets->data as $sheet) {
 
             list($smin, $smax) = $this->get_sheet_range($workbook, $sheet);
@@ -827,7 +829,9 @@ class tool_importusers_form extends moodleform {
             for ($s = $smin; $s <= $smax; $s++) {
                 $worksheet = $workbook->setActiveSheetIndex($s - 1);
 
-                $sheetvars = array('sheet_name' => $worksheet->getTitle());
+                $sheetname = $worksheet->getTitle();
+                $sheetvars = array('sheet_name' => $sheetname);
+
                 foreach ($sheet->rows->meta as $row) {
 
                     list($rmin, $rmax) = $this->get_row_range($worksheet, $row);
@@ -854,18 +858,22 @@ class tool_importusers_form extends moodleform {
                             foreach ($row->cells->data as $c => $name) {
                                 $rowvars[$name] = $this->get_cell_value($worksheet, $c, $r);
                             }
-                            $vars = array_merge($filevars, $sheetvars, $rowvars);
-                            if ($user = $this->format_fields($format->fields, 'user', $vars)) {
-                                $course = $this->format_fields($format->fields, 'course', $vars);
-                                $groups = $this->format_fields($format->fields, 'groups', $vars);
-                                $data = array_merge($user, $course, $groups);
-                                if ($mode == self::MODE_IMPORT) {
-                                    $data['status'] = $this->import_user($data);
+                            if (empty(array_filter($rowvars)) && empty($rowvars['username'])) {
+                                // empty row - shouldn't happen !!
+                            } else {
+                                $vars = array_merge($filevars, $sheetvars, $rowvars);
+                                if ($user = $this->format_fields($format->fields, 'user', $vars)) {
+                                    $course = $this->format_fields($format->fields, 'course', $vars);
+                                    $groups = $this->format_fields($format->fields, 'groups', $vars);
+                                    $data = array_merge($user, $course, $groups);
+                                    if ($mode == self::MODE_IMPORT) {
+                                        $data['status'] = $this->import_user($data, $sheetname, $r);
+                                    }
+                                    $cell = new html_table_cell("$s$seperator$r");
+                                    $cell->header = true;
+                                    $table->data[] = array_merge(array('row' => $cell), $data);
+                                    $rowcount++;
                                 }
-                                $cell = new html_table_cell($r);
-                                $cell->header = true;
-                                $table->data[] = array_merge(array('row' => $cell), $data);
-                                $rowcount++;
                             }
                             if ($mode==self::MODE_DRYRUN && $rowcount >= $previewrows) {
                                 break 4;
@@ -886,7 +894,9 @@ class tool_importusers_form extends moodleform {
             $table->head = array_keys($table->data[0]);
             foreach ($table->head as $i => $head) {
                 if ($head == 'row') {
-                    $table->head[$i] = get_string($head, $this->tool);
+                    $table->head[$i] = get_string('sheet', $this->tool).
+                                       $seperator.
+                                       get_string('row', $this->tool);
                 } else {
                     if (preg_match($search, $head, $match)) {
                         if ($match[1] == 'course') {
@@ -1054,23 +1064,32 @@ class tool_importusers_form extends moodleform {
     /**
      * import_user
      */
-    public function import_user($data) {
+    public function import_user($data, $sheet, $row) {
         global $CFG, $DB;
 
         $time = time();
         $status = array();
 
+        if (empty($data['username'])) {
+            $a = (object)array('sheet' => $sheet,
+                               'row' => $row);
+            return $this->format_status('nousername', 'text-warning', null, $a);
+        }
+
         $action = optional_param('uploadaction', 0, PARAM_INT);
         if ($user = $DB->get_record('user', array('username' => $data['username']))) {
             if ($action == self::ACTION_ADD_NEW_ONLY) {
-                $status[] = $this->format_status_user('userskipped', 'text-warning', $user->id);
+                $status[] = $this->format_status_user('userskipped', 'text-warning', null, $user->id);
                 $update = false;
             } else {
                 $update = true;
             }
         } else {
             if ($action == self::ACTION_UPDATE_EXISTING) {
-                return $this->format_status('missinguser', 'text-warning');
+                $a = (object)array('sheet' => $sheet,
+                                   'row' => $row,
+                                   'username' => $data['username']);
+                return $this->format_status('missingusername', 'text-warning', null, $data['username']);
             }
             $update = true;
             $user = (object)array(
@@ -1311,8 +1330,8 @@ class tool_importusers_form extends moodleform {
     /**
      * format_status
      */
-    public function format_status($stringname, $class, $url=null) {    
-        $status = get_string($stringname, $this->tool);
+    public function format_status($stringname, $class, $url=null, $a=null) {    
+        $status = get_string($stringname, $this->tool, $a);
         $status = html_writer::tag('small', $status, array('class' => $class));
         if ($url) {
             $params = array('onclick' => "this.target='importusers'");
