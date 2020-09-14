@@ -2,6 +2,9 @@
 Change log for tool_importusers
 ========================================
 
+2020-10-13 (14)
+ - ensure password is encrypted using MD5 with password salt
+
 2020-10-13 (13)
  - skip empty lines in importfile
 

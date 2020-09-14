@@ -1070,26 +1070,56 @@ class tool_importusers_form extends moodleform {
         $time = time();
         $status = array();
 
+        $changepassword = optional_param('changepassword', 0, PARAM_INT);
+        $fixusernames = optional_param('fixusernames', 0, PARAM_INT);
+        $uploadaction = optional_param('uploadaction', 0, PARAM_INT);
+
         if (empty($data['username'])) {
             $a = (object)array('sheet' => $sheet,
                                'row' => $row);
             return $this->format_status('nousername', 'text-warning', null, $a);
         }
 
-        $action = optional_param('uploadaction', 0, PARAM_INT);
-        if ($user = $DB->get_record('user', array('username' => $data['username']))) {
-            if ($action == self::ACTION_ADD_NEW_ONLY) {
+        $data['rawusername'] = $data['username'];
+        $data['username'] = strtolower($data['username']);
+        $data['cleanusername'] = preg_replace('/[^a-z0-9_.-]/u', '', $data['username']);
+
+
+        // make sure that password is encoded to a minimum level
+        if (isset($data['password'])) {
+            if (empty($CFG->passwordsaltmain)) {
+                $salt = '';
+            } else {
+                $salt = $CFG->passwordsaltmain;
+            }
+            $data['password'] = md5($data['password'].$salt);
+        }
+
+        if ($user = $DB->get_record('user', array('username' => $data['rawusername']))) {
+            $user->username = $data['username']; // Ensure lower case username.
+        } else {
+            $user = $DB->get_record('user', array('username' => $data['username']));
+        }
+
+        if ($user) {
+            if ($uploadaction == self::ACTION_ADD_NEW_ONLY) {
                 $status[] = $this->format_status_user('userskipped', 'text-warning', null, $user->id);
                 $update = false;
             } else {
+                if ($fixusernames == self::SELECT_ALL) {
+                    $data['username'] = $data['cleanusername'];
+                }
                 $update = true;
             }
         } else {
-            if ($action == self::ACTION_UPDATE_EXISTING) {
+            if ($uploadaction == self::ACTION_UPDATE_EXISTING) {
                 $a = (object)array('sheet' => $sheet,
                                    'row' => $row,
                                    'username' => $data['username']);
                 return $this->format_status('missingusername', 'text-warning', null, $data['username']);
+            }
+            if ($fixusernames == self::SELECT_NEW) {
+                $data['username'] = $data['cleanusername'];
             }
             $update = true;
             $user = (object)array(
@@ -1167,8 +1197,7 @@ class tool_importusers_form extends moodleform {
             }
 
             // use default values from form
-            $names = array('chooseauthmethod'  => PARAM_ALPHANUM,
-                           'timezone'          => PARAM_TEXT,
+            $names = array('timezone'          => PARAM_TEXT,
                            'lang'              => PARAM_ALPHANUM,
                            'calendar'          => PARAM_ALPHANUM,
                            'description[text]' => PARAM_TEXT,
@@ -1179,6 +1208,10 @@ class tool_importusers_form extends moodleform {
                 if (empty($user->$name)) {
                     $user->$fieldname = optional_param($name, '', $type);
                 }
+            }
+
+            if (empty($user->auth)) {
+                $user->auth = optional_param('chooseauthmethod', 'manual', PARAM_ALPHANUM);
             }
         }
 
@@ -1272,8 +1305,7 @@ class tool_importusers_form extends moodleform {
             }
 
             // get manual enrolment instance for this course
-            $authmethod = optional_param('chooseauthmethod', 'manual', PARAM_ALPHANUM);
-            if (! $enrol = $this->get_enrol($courseid, $role->id, $user->id, $time, $authmethod)) {
+            if (! $enrol = $this->get_enrol($courseid, $role->id, $user->id, $time, $user->auth)) {
                 $status[] = $this->format_status('erroraddingenrolmethod', 'text-danger');
                 continue;
             }
