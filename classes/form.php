@@ -1694,6 +1694,8 @@ class tool_importusers_form extends moodleform {
                 $grouplink = html_writer::link($grouplink, $groupname, $linkparams);
 
                 $table = new html_table();
+                $table->attributes['style'] = 'max-width: 100%; '.
+                                              'width: max-content;'
                 foreach ($group->users as $userid => $user) {
 
                     $params = array('course' => $course->id, 'id' => $userid);
