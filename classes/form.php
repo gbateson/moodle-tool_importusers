@@ -79,13 +79,23 @@ class tool_importusers_form extends moodleform {
         $this->lowercase = array_flip(str_split('abdeghjmnpqrstuvyz', 1));
         $this->uppercase = array_flip(str_split('ABDEGHJLMNPQRSTUVWXYZ', 1));
 
-        // get a valid form state
+        // Get a valid form state.
         $states = array('upload', 'preview', 'review', 'import');
         $this->formstate = optional_param('formstate', '', PARAM_ALPHA);
         if (in_array($this->formstate, $states)) {
             // form state is valid - do nothing
         } else {
             $this->formstate = reset($states);
+        }
+
+        // Detect "Cancel" or "Back" button.
+        if (optional_param('cancel', 0, PARAM_RAW)) {
+            $i = array_search($this->formstate, $states);
+            if ($i >= 2) {
+                $this->formstate = $states[$i - 2];
+            } else {
+                $this->formstate = 'cancelled';
+            }
         }
 
         // check for new PhpExcel (Moodle >= 3.8)

@@ -2,6 +2,9 @@
 Change log for tool_importusers
 ========================================
 
+2020-10-15 (17)
+ - fix behavior of Cancel/Back button
+
 2020-10-15 (16)
  - create page resources of login details of imported users
 

@@ -31,25 +31,10 @@ require_once($CFG->dirroot.'/lib/adminlib.php');
 admin_externalpage_setup('toolimportusers');
 
 $form = new tool_importusers_form();
-$formstate = $form->get_state(); // "upload", "preview", "review" or "import"
+$formstate = $form->get_state(); // "upload", "preview", "review", "import" or "cancelled"
 
-if ($form->is_cancelled()) {
-
-    switch ($formstate) {
-        case 'preview': $formstate = 'upload';  break;
-        case 'review':  $formstate = 'preview'; break;
-        case 'import':  $formstate = 'review';  break;
-        default: $formstate = ''; // "upload"
-    }
-
-    if ($formstate=='') {
-        echo redirect(new moodle_url('/admin/index.php'));
-    } else {
-        $params = array('formstate' => $formstate);
-        $url = '/admin/tool/importusers/index.php';
-        // TODO: submit the form so that we can preserve the values
-        echo redirect(new moodle_url($url, $params));
-    }
+if ($formstate == 'cancelled') {
+    echo redirect(new moodle_url('/admin/search.php'));
 }
 
 echo $OUTPUT->header();
