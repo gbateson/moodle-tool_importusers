@@ -2,6 +2,9 @@
 Change log for tool_importusers
 ========================================
 
+2020-10-17 (19)
+ - fix syntax error leftover from recent upgrade.
+
 2020-10-16 (18)
  - add inline CSS to ensure login resource tables are not too wide
 

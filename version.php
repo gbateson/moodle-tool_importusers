@@ -28,5 +28,5 @@ defined('MOODLE_INTERNAL') || die();
 $plugin->component = 'tool_importusers';
 $plugin->maturity  = MATURITY_STABLE;
 $plugin->requires  = 2015051100; // Moodle 2.9 (because we want to use AMD)
-$plugin->version   = 2020101618;
-$plugin->release   = '2020-10-16 (18)';
+$plugin->version   = 2020101719;
+$plugin->release   = '2020-10-17 (19)';
