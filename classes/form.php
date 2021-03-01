@@ -68,6 +68,7 @@ class tool_importusers_form extends moodleform {
 
     protected $formstate = '';
     protected $phpspreadsheet = null;
+    protected $punctuation = null;
 
     /**
      * constructor
@@ -78,6 +79,57 @@ class tool_importusers_form extends moodleform {
         $this->numeric   = array_flip(str_split('23456789', 1));
         $this->lowercase = array_flip(str_split('abdeghjmnpqrstuvyz', 1));
         $this->uppercase = array_flip(str_split('ABDEGHJLMNPQRSTUVWXYZ', 1));
+        $this->punctuation =array(
+            /* 00D7 */ '×' => '*',
+
+            // "General Punctuation"
+            // https://0g0.org/category/2000-206F/1/
+            /* 2014 */ '—' => '-', '‖' => '|', /* 2016 */
+            /* 2018 */ '‘' => "'", '’' => "'", /* 2019 */
+            /* 201C */ '“' => '"', '”' => '"', /* 201D */
+            /* 2026 */ '…' => '-',
+
+            // "CJK Symbols and Punctuation" 3000-303F
+            // https://0g0.org/category/3000-303F/1/
+            /* 3000 */ '　' => ' ', '、' => ',', /* 3001 */
+            /* 3002 */ '。' => '.', '〃' => '"', /* 3003 */
+            /* 3007 */ '〇' => 'O',
+            /* 3008 */ '〈' => '<', '〉' => '>', /* 3009 */
+            /* 300A */ '《' => '<', '》' => '>', /* 300B */
+            /* 300C */ '「' => "'", '」' => "'", /* 300D */
+            /* 300E */ '『' => '"', '』' => '"', /* 300F */
+            /* 3010 */ '【' => '[', '】' => ']', /* 3011 */
+            /* 3014 */ '〔' => '(', '〕' => ')', /* 3015 */
+            /* 3016 */ '〖' => '[', '〗' => ']', /* 3017 */
+            /* 3018 */ '〘' => '[', '〙' => ']', /* 3019 */
+            /* 301A */ '〚' => '[', '〛' => ']', /* 301B */
+            /* 301C */ '〜' => '~', '〝' => '"', /* 301D */
+            /* 301E */ '〞' => '"', '〟' => '"', /* 301F */
+
+            // "Halfwidth and Fullwidth Forms" FF00-FFEF
+            // https://0g0.org/category/FF00-FFEF/1/
+            /* FF01 */ '！' => '!', '＂' => '"', /* FF02 */
+            /* FF03 */ '＃' => '#', '＄' => '$', /* FF04 */
+            /* FF05 */ '％' => '%', '＆' => '&', /* FF06 */
+            /* FF07 */ '＇' => "'", '（' => '(', /* FF08 */
+            /* FF09 */ '）' => ')', '＊' => '*', /* FF0A */
+            /* FF0B */ '＋' => '+', '，' => ',', /* FF0C */
+            /* FF0D */ '－' => '-', '．' => '.', /* FF0E */
+            /* FF0F */ '／' => '/', '：' => ':', /* FF1A */
+            /* FF1B */ '；' => ';', '＜' => '<', /* FF1C */
+            /* FF1D */ '＝' => '=', '＞' => '>', /* FF1E */
+            /* FF1F */ '？' => '?', '＠' => '@', /* FF20 */
+            /* FF3B */ '［' => '[', '＼' => '\\', /* FF3C */
+            /* FF3D */ '］' => ']', '＾' => '^', /* FF3E */
+            /* FF3F */ '＿' => '_', '｀' => "'", /* FF40 */
+            /* FF5B */ '｛' => '{', '｜' => '|', /* FF5C */
+            /* FF5D */ '｝' => '}', '～' => '~', /* FF5E */
+            /* FF5F */ '｟' => '(', '｠' => ')', /* FF60 */
+            /* FF61 */ '｡' => '. ', '｢' => '"',  /* FF62 */
+            /* FF63 */ '｣' => '"',  '､' => ',',  /* FF64 */
+            /* FF65 */ '･' => '/', '￣' => '~',  /* FFE3 */
+            /* FFE1 */ '￡' => '£', '￥' => '¥'  /* FFE5 */
+        );
 
         // Get a valid form state.
         $states = array('upload', 'preview', 'review', 'import');
@@ -215,6 +267,13 @@ class tool_importusers_form extends moodleform {
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, self::SELECT_NEW);
 
+                $name = 'uniqueemail';
+                $label = get_string($name, $this->tool);
+                $mform->addElement('select', $name, $label, $options);
+                $mform->addHelpButton($name, $name, $this->tool);
+                $mform->setType($name, PARAM_INT);
+                $mform->setDefault($name,  self::SELECT_NEW);
+
                 $name = 'fixusernames';
                 $label = get_string($name, $this->tool);
                 $mform->addElement('select', $name, $label, $options);
@@ -222,12 +281,12 @@ class tool_importusers_form extends moodleform {
                 $mform->setType($name, PARAM_INT);
                 $mform->setDefault($name, self::SELECT_NEW);
 
-                $name = 'selectusers';
-                $label = get_string($name, $this->tool);
-                $mform->addElement('select', $name, $label, $options);
-                $mform->addHelpButton($name, $name, $this->tool);
-                $mform->setType($name, PARAM_INT);
-                $mform->setDefault($name, self::SELECT_NONE);
+                //$name = 'selectusers';
+                //$label = get_string($name, $this->tool);
+                //$mform->addElement('select', $name, $label, $options);
+                //$mform->addHelpButton($name, $name, $this->tool);
+                //$mform->setType($name, PARAM_INT);
+                //$mform->setDefault($name, self::SELECT_NONE);
 
                 $this->add_heading($mform, 'defaultvalues', $this->tool, false);
 
@@ -325,7 +384,7 @@ class tool_importusers_form extends moodleform {
                                 'sendpassword' => PARAM_INT,
                                 'changepassword' => PARAM_INT,
                                 'fixusernames' => PARAM_INT,
-                                'selectusers' => PARAM_INT,
+                                'uniqueemail' => PARAM_INT,
                                 'chooseauthmethod' => PARAM_ALPHANUM,
                                 'timezone' => PARAM_TEXT,
                                 'lang' => PARAM_ALPHANUM,
@@ -333,6 +392,16 @@ class tool_importusers_form extends moodleform {
                                 'description[text]' => PARAM_TEXT,
                                 'description[format]' => PARAM_INT);
                 $this->transfer_incoming_values($mform, $values);
+
+                $name = 'resourcetype';
+                $label = get_string($name, $this->tool);
+                $options = array('' => get_string('none'),
+                                 'page' => get_string('pluginname', 'mod_page'),
+                                 'book' => get_string('pluginname', 'mod_book'));
+                $mform->addElement('select', $name, $label, $options);
+                $mform->addHelpButton($name, $name, $this->tool);
+                $mform->setType($name, PARAM_ALPHA);
+                $mform->setDefault($name, 'book');
 
                 $submit = 'import';
                 $cancel = 'back';
@@ -571,6 +640,12 @@ class tool_importusers_form extends moodleform {
         $name = 'fields';
         if (empty($xml['importusersfile']['#'][$name])) {
             return get_string('xmltagmissing', $this->tool, $name);
+        }
+
+        // If $settings are missing, we can still continue.
+        $name = 'settings';
+        if (empty($xml['importusersfile']['#'][$name])) {
+            $xml['importusersfile']['#'][$name] = array();
         }
 
         // initialize the $format object
@@ -854,7 +929,6 @@ class tool_importusers_form extends moodleform {
             $previewrows = optional_param('previewrows', 10, PARAM_INT);
         }
 
-
         $filevars = array();
         foreach ($format->params as $name => $value) {
             $filevars[$name] = $value;
@@ -940,13 +1014,21 @@ class tool_importusers_form extends moodleform {
                     if (preg_match($search, $head, $match)) {
                         if ($match[1] == 'course') {
                             // course fields
-                            $head = get_string($match[2]);
+                            if ($match[2] == 'selfenrolmentkey') {
+                                $head = get_string('course').
+                                        get_string('labelsep', 'langconfig').
+                                        get_string('password', 'enrol_self');
+                            } else {
+                                $head = get_string($match[2]);
+                            }
                         } else {
                             // group fields
                             if ($match[2] == 'name' || $match[2] == 'description') {
                                 $head = get_string('group'.$match[2], 'group');
                             } else {
-                                $head = get_string($match[2], 'group');
+                                $head = get_string('group').
+                                        get_string('labelsep', 'langconfig').
+                                        get_string($match[2], 'group');
                             }
                         }
                     } else {
@@ -958,8 +1040,9 @@ class tool_importusers_form extends moodleform {
                 }
             }
 
-            if ($mode == self::MODE_IMPORT) {
-                $table->caption .= $this->add_login_resources($table);
+            $resourcetype = optional_param('resourcetype', '', PARAM_ALPHA);
+            if ($resourcetype && $mode == self::MODE_IMPORT) {
+                $table->caption .= $this->add_login_resources($resourcetype, $table);
             }
         }
     }
@@ -1039,75 +1122,225 @@ class tool_importusers_form extends moodleform {
     /**
      * format_field
      */
-    public function format_field($value, $vars) {
+    public function format_field($value, &$vars) {
 
-        // do basic search and replace of field names
-        $pairs = $vars;
-        krsort($pairs);
-        $value = strtr($value, $vars);
+        $search = '/LOWERCASE|PROPERCASE|UPPERCASE'.
+                   '|EXTRACT|FULLWIDTH|HALFWIDTH'.
+                   '|RANDOM|REPLACE|SUBSTRING/u';
 
-        $search = '/LOWERCASE|UPPERCASE|PROPERCASE|EXTRACT|RANDOM|REPLACE/';
+        // search and replace function names (starting from the last one)
         if (preg_match_all($search, $value, $matches, PREG_OFFSET_CAPTURE)) {
 
-            $imax = (count($matches[0]) - 1);
-            for ($i = $imax; $i >= 0; $i--) {
+            for ($m = count($matches[0]); $m > 0; $m--) {
+                list($match, $start) = $matches[0][$m - 1];
 
-                list($match, $start) = $matches[0][$i];
-                $mid = strpos($value, '(', $start + 1);
-                $end = strpos($value, ')', $mid + 1);
-                $args = explode(',', substr($value, $mid + 1, ($end - $mid - 1)));
+                $mode = 0;
+                // 0: find open parentheses
+                // 1: find start argument
+                // 2: find end unquoted argument
+                // 3: find end quoted argument
+                // 4: find comma or closing parenthesis
+                // 5: complete
+                // 6: error !!
 
-                switch ($match) {
-                    case 'LOWERCASE':
-                        $args = self::textlib('strtolower', $args[0]);
-                        break;
+                $args = array();
+                $a = -1; // index on $args
 
-                    case 'UPPERCASE':
-                        $args = self::textlib('strtoupper', $args[0]);
-                        break;
+                $i = ($start + strlen($match));
+                $i_max = strlen($value);
+                while ($i < $i_max && $mode < 5) {
+                    switch ($mode) {
 
-                    case 'PROPERCASE':
-                        $args = self::textlib('strtotitle', $args[0]);
-                        break;
+                        case 0:
+                            // expecting opening parenthesis
+                            switch ($value[$i]) {
 
-                    case 'EXTRACT':
-                        $args[0] = preg_split('/\s+/u', $args[0]);
-                        if (array_key_exists(1, $args)) {
-                            if ($args[1] > 0) {
-                                $args[1]--;
+                                // leading white space is ignored
+                                case ' ':
+                                    break;
+
+                                // opening parenthesis - yay!
+                                case '(':
+                                    $mode = 1;
+                                    break;
+
+                                default:
+                                    $args = "No open bracket found for $match";
+                                    $mode = 6;
                             }
-                            if (array_key_exists(2, $args)) {
-                                $args[0] = array_splice($args[0], $args[1], $args[2]);
-                            } else {
-                                $args[0] = array_splice($args[0], $args[1]);
+                            break;
+
+                        case 1:
+                            // expecting start of argument
+                            switch ($value[$i]) {
+
+                                // leading white space is ignored
+                                case ' ':
+                                    break;
+
+                                case ',':
+                                    $mode = 6;
+                                    $args = "Comma not expected parsing $match";
+                                    break;
+
+                                // closing parenthesis (i.e. end of arguments)
+                                case ')':
+                                    $mode = 5;
+                                    break;
+
+                                // start of a quoted quoted argument
+                                case '"':
+                                    $a++;
+                                    $args[$a] = '';
+                                    $mode = 3;
+                                    break;
+
+                                // first char of an unquoted argument
+                                default:
+                                    $a++;
+                                    $args[$a] = $value[$i];
+                                    $mode = 2;
                             }
-                        }
-                        $args = implode(' ', $args[0]);
-                        break;
+                            break;
 
-                    case 'RANDOM':
-                        $args = $this->create_random((object)array(
-                            'countlowercase' => (array_key_exists(0, $args) && is_numeric($args[0]) ? $args[0] : 1),
-                            'countuppercase' => (array_key_exists(1, $args) && is_numeric($args[1]) ? $args[1] : 0),
-                            'countnumeric'   => (array_key_exists(2, $args) && is_numeric($args[2]) ? $args[2] : 2),
-                            'shufflerandom'  => (array_key_exists(3, $args) && is_numeric($args[3]) ? $args[3] : 0)
-                        ));
-                        break;
+                        case 2:
+                            // expecting end of unquoted argument
+                            switch ($value[$i]) {
+                                case ',':
+                                    $mode = 1;
+                                    break;
 
-                    case 'REPLACE':
-                        $args[0] = trim($args[0], '"');
-                        $args[1] = trim($args[1], '"');
-                        $args = preg_replace('/'.preg_quote($args[0], '/').'/u', $args[1], $args[2]);
-                        break;
+                                case ')':
+                                    $mode = 5;
+                                    break;
 
-                    default:
-                        $args = implode(',', $args);
-                        break;
+                                default:
+                                    // next char of an unquoted argument
+                                    $args[$a] .= $value[$i];
+                            }
+                            break;
+
+                        case 3:
+                            // expecting end of quoted argument
+                            switch ($value[$i]) {
+                                case '"':
+                                    $mode = 4;
+                                    break;
+
+                                default:
+                                    // next char of an quoted argument
+                                    $args[$a] .= $value[$i];
+                            }
+                            break;
+
+                        case 4:
+                            // expecting comma or closing parenthesis
+                            switch ($value[$i]) {
+                                case ' ':
+                                    break;
+
+                                case ',':
+                                    $mode = 1;
+                                    break;
+
+                                case ')':
+                                    $mode = 5;
+                                    break;
+
+                                default:
+                                    $mode = 6;
+                                    $args = "Character '".$value[$i]."' not expected after quoted string in $match";
+                            }
+                            break;
+                    }
+                    $i++;
                 }
-                $value = substr_replace($value, $args, $start, $end - $start + 1);
+
+                if ($mode == 6) {
+                    $replace = $args; // error message
+                } else {
+                    foreach ($args as $a => $arg) {
+                        if (array_key_exists($arg, $vars)) {
+                            $args[$a] = $vars[$arg];
+                        }
+                    }
+                    $replace = $this->format_function($match, $args);
+                }
+                $value = substr_replace($value, $replace, $start, ($i - $start));
             }
         }
-        return $value;
+
+        // replace any vars in open text (i.e. outside functions)
+        return strtr($value, $vars);
+    }
+
+    public function format_function($name, $args) {
+
+        switch ($name) {
+            case 'LOWERCASE':
+                return self::textlib('strtolower', $args[0]);
+
+            case 'PROPERCASE':
+                return self::textlib('strtotitle', $args[0]);
+
+            case 'UPPERCASE':
+                return self::textlib('strtoupper', $args[0]);
+
+            case 'EXTRACT':
+                $args[0] = preg_split('/\s+/u', $args[0]);
+                if (array_key_exists(1, $args)) {
+                    if ($args[1] > 0) {
+                        $args[1]--;
+                    }
+                    if (array_key_exists(2, $args)) {
+                        $args[0] = array_splice($args[0], $args[1], $args[2]);
+                    } else {
+                        $args[0] = array_splice($args[0], $args[1]);
+                    }
+                }
+                return implode(' ', $args[0]);
+
+            case 'FULLWIDTH':
+                $args = mb_convert_kana($args[0], 'AS', 'UTF-8');
+                $args = strtr($args, array_flip($this->punctuation));
+                return $args;
+
+            case 'HALFWIDTH':
+                $args = mb_convert_kana($args[0], 'as', 'UTF-8');
+                $args = strtr($args, $this->punctuation);
+                return $args;
+
+            case 'RANDOM':
+                return $this->create_random((object)array(
+                    'countlowercase' => (array_key_exists(0, $args) && is_numeric($args[0]) ? $args[0] : 1),
+                    'countuppercase' => (array_key_exists(1, $args) && is_numeric($args[1]) ? $args[1] : 0),
+                    'countnumeric'   => (array_key_exists(2, $args) && is_numeric($args[2]) ? $args[2] : 2),
+                    'shufflerandom'  => (array_key_exists(3, $args) && is_numeric($args[3]) ? $args[3] : 0)
+                ));
+                break;
+
+            case 'REPLACE':
+                $i = 1;
+                $params = array();
+                while (array_key_exists($i, $args) && array_key_exists($i + 1, $args)) {
+                    $params[$args[$i++]] = $args[$i++];
+                }
+                if (empty($params)) {
+                    return $args[0];
+                }
+                return strtr($args[0], $params);
+
+            case 'SUBSTRING':
+                switch (count($args)) {
+                    case 0: $args[0] = ''; // intentional drop through
+                    case 1: $args[1] =  1; // intentional drop through
+                    case 2: $args[2] =  self::textlib('strlen', $args[0]);
+                }
+                return self::textlib('substr', $args[0], $args[1] - 1, $args[2]);
+
+            default:
+                return implode(',', $args);
+        }
     }
 
     /**
@@ -1122,6 +1355,7 @@ class tool_importusers_form extends moodleform {
         $changepassword = optional_param('changepassword', 0, PARAM_INT);
         $fixusernames = optional_param('fixusernames', 0, PARAM_INT);
         $uploadaction = optional_param('uploadaction', 0, PARAM_INT);
+        $uniqueemail = optional_param('uniqueemail', 0, PARAM_INT);
 
         if (empty($data['username'])) {
             $a = (object)array('sheet' => $sheet,
@@ -1133,7 +1367,6 @@ class tool_importusers_form extends moodleform {
         $data['username'] = strtolower($data['username']);
         $data['cleanusername'] = preg_replace('/[^a-z0-9_.-]/u', '', $data['username']);
 
-
         // make sure that password is encoded to a minimum level
         if (isset($data['password'])) {
             if (empty($CFG->passwordsaltmain)) {
@@ -1143,8 +1376,10 @@ class tool_importusers_form extends moodleform {
             }
             $data['password'] = md5($data['password'].$salt);
         }
-
-        if ($user = $DB->get_record('user', array('username' => $data['rawusername']))) {
+ 
+        if ($uniqueemail && ($user = $DB->get_record('user', array('username' => $data['email'])))) {
+            $user->username = $data['username']; // Ensure new username.
+        } else if ($user = $DB->get_record('user', array('username' => $data['rawusername']))) {
             $user->username = $data['username']; // Ensure lower case username.
         } else {
             $user = $DB->get_record('user', array('username' => $data['username']));
@@ -1615,10 +1850,10 @@ class tool_importusers_form extends moodleform {
     /**
      * add_login_resources
      *
-     * @param object $data
-     * @param string $table
+     * @param string $resourcetype
+     * @param object $table
      */
-    public function add_login_resources($table) {
+    public function add_login_resources($resourcetype, $table) {
         global $DB;
 
         $courses = array();
@@ -1685,7 +1920,7 @@ class tool_importusers_form extends moodleform {
 
             $params = array('id' => $course->id);
             $courselink = new moodle_url('/course/view.php', $params);
-            $courselink = html_writer::link($courselink, $shortname, $linkparams);;
+            $courselink = html_writer::link($courselink, $shortname, $linkparams);
 
             foreach ($course->groups as $groupname => $group) {
 
@@ -1721,10 +1956,10 @@ class tool_importusers_form extends moodleform {
                         get_string('group'),
                     );
                     $table = html_writer::table($table);
-                    if ($cm = $this->add_login_resource($course->id, $table, $groupname)) {
-                        $resourcelink = new moodle_url('/mod/page/view.php', array('id' => $cm->id));
+                    if ($cm = $this->add_login_resource($resourcetype, $course->id, $table, $groupname)) {
+                        $resourcelink = new moodle_url("/mod/$resourcetype/view.php", array('id' => $cm->id));
                         $resourcelink = html_writer::link($resourcelink, $cm->name, $linkparams);
-                        $resourcelinks[] = $resourcelink;
+                        $resourcelinks[$cm->id] = $resourcelink;
                     }
                 }
             }
@@ -1742,90 +1977,89 @@ class tool_importusers_form extends moodleform {
     /**
      * add_login_resource
      *
+     * @param  string  $resourcetype
      * @param  object  $course
      * @param  string  $table
      * @param  string  $groupname (optional, default='')
      * @param  integer $sectionnum (optional, default=0)
      * @return object  $cm course_module record of newly added/updated page resource
      */
-    public function add_login_resource($courseid, $table, $groupname='', $sectionnum=0) {
+    public function add_login_resource($resourcetype, $courseid, $table, $groupname='', $sectionnum=0) {
         global $DB, $USER;
 
-        static $pagemoduleid = null;
-        if ($pagemoduleid===null) {
-            $pagemoduleid = $DB->get_field('modules', 'id', array('name' => 'page'));
+        static $moduleid = null;
+        if ($moduleid === null) {
+            $moduleid = $DB->get_field('modules', 'id', array('name' => $resourcetype));
         }
 
-        if ($groupname=='') {
-            $name = get_string('userlogindetails', 'tool_importusers');
-        } else {
+        if ($resourcetype == 'page' && $groupname) {
             $name = get_string('userlogindetailsgroup', 'tool_importusers', $groupname);
+        } else {
+            $name = get_string('userlogindetails', 'tool_importusers');
         }
 
-        $select = 'cm.*, ? AS modname, ? AS modulename, p.name AS name';
+        $select = 'cm.*, ? AS modname, ? AS modulename, r.name AS name';
         $from   = '{course_modules} cm '.
-                  'JOIN {page} p ON cm.module = ? AND cm.instance = p.id';
-        $where  = 'p.course = ? AND p.name = ?';
-        $params = array('page', 'page', $pagemoduleid, $courseid, $name);
+                  'JOIN {'.$resourcetype.'} r ON cm.module = ? AND cm.instance = r.id';
+        $where  = 'r.course = ? AND r.name = ? AND deletioninprogress = ?';
+        $params = array($resourcetype, $resourcetype, $moduleid, $courseid, $name, 0);
         $order  = 'cm.visible DESC, cm.added DESC'; // newest, visible cm first
 
         if ($cm = $DB->get_records_sql("SELECT $select FROM $from WHERE $where ORDER BY $order", $params, 0, 1)) {
             $cm  = reset($cm);
-            $cm->content = $table;
-            $DB->set_field('page', 'content', $table, array('id' => $cm->instance));
-
-            // Trigger mod_updated event with information about this page resource.
-            if (class_exists('\\core\\event\\course_module_updated')) {
-                // Moodle >= 2.6
-                \core\event\course_module_updated::create_from_cm($cm)->trigger();
-            } else {
-                $event = (object)array(
-                    'cmid'       => $cm->id,
-                    'courseid'   => $cm->course,
-                    'modulename' => $cm->modulename,
-                    'name'       => $cm->name,
-                    'userid'     => $USER->id
-                );
-                if (function_exists('events_trigger_legacy')) {
-                    // Moodle 2.6 - 3.0 ... so not used here anymore
-                    events_trigger_legacy('mod_updated', $event);
-                } else {
-                    // Moodle <= 2.5
-                    events_trigger('mod_updated', $event);
-                }
-            }
         } else {
-            $cm = (object)array(
-                // standard page resource fields
-                'name'            => $name,
-                'intro'           => ' ',
-                'introformat'     => FORMAT_HTML,
-                'content'         => $table,
-                'contentformat'   => FORMAT_HTML,
-                'tobemigrated'    => 0,
-                'legacyfiles'     => 0,
-                'legacyfileslast' => 0,
-                'display'         => 0,
-                'displayoptions'  => '',
-                'revision'        => 0,
-                'timemodified'    => time(),
-
+            $cm = array(
                 // standard fields for adding a new cm
                 'course'          => $courseid,
                 'section'         => $sectionnum,
-                'module'          => $pagemoduleid,
-                'modname'         => 'page',
-                'modulename'      => 'page',
-                'add'             => 'page',
+                'module'          => $moduleid,
+                'modname'         => $resourcetype,
+                'modulename'      => $resourcetype,
+                'add'             => $resourcetype,
                 'update'          => 0,
                 'return'          => 0,
                 'cmidnumber'      => '',
                 'visible'         => 0,
                 'groupmode'       => 0,
                 'MAX_FILE_SIZE'   => 0,
+
+                // common fields for all resource types
+                'name'            => $name,
+                'intro'           => ' ',
+                'introformat'     => FORMAT_HTML
             );
 
-            if (! $cm->instance = $DB->insert_record('page', $cm)) {
+            switch ($resourcetype) {
+                case 'book':
+                    $cm = array_merge($cm, array(
+                        // see BOOK constants in "mod/book/locallib.php"
+                        'numbering'       => 3, // BOOK_NUM_INDENTED
+                        'navstyle'        => 1, // BOOK_LINK_IMAGE
+                        'customtitles'    => 0,
+                        'revision'        => 0,
+                        'timecreated'     => time(),
+                        'timemodified'    => time(),
+                    ));
+                    break;
+
+                case 'page':
+                    $cm = array_merge($cm, array(
+                        'content'         => $table,
+                        'contentformat'   => FORMAT_HTML,
+                        'tobemigrated'    => 0,
+                        'legacyfiles'     => 0,
+                        'legacyfileslast' => 0,
+                        'display'         => 0,
+                        'displayoptions'  => '',
+                        'revision'        => 0,
+                        'timemodified'    => time(),
+                    ));
+                    break;
+            }
+
+            $cm = (object)$cm;
+
+            if (! $cm->instance = $DB->insert_record($resourcetype, $cm)) {
                 return false;
             }
             if (! $cm->id = add_course_module($cm) ) {
@@ -1833,8 +2067,10 @@ class tool_importusers_form extends moodleform {
             }
             $cm->coursemodule = $cm->id;
             if (function_exists('course_add_cm_to_section')) {
+                // Moodle >= 2.4
                 $sectionid = course_add_cm_to_section($courseid, $cm->id, $sectionnum);
             } else {
+                // Moodle <= 2.3
                 $sectionid = add_mod_to_section($cm);
             }
             if ($sectionid===false) {
@@ -1844,7 +2080,7 @@ class tool_importusers_form extends moodleform {
                 throw new moodle_exception('Could not update the course module with the correct section');
             }
 
-            // if the section is hidden, we should also hide the new quiz activity
+            // if the section is hidden, we should also hide the new resource
             if (! isset($cm->visible)) {
                 $cm->visible = $DB->get_field('course_sections', 'visible', array('id' => $sectionid));
             }
@@ -1869,6 +2105,75 @@ class tool_importusers_form extends moodleform {
                     // Moodle <= 2.5
                     events_trigger('mod_created', $event);
                 }
+            }
+        }
+
+        switch ($resourcetype) {
+
+            case 'page':
+                $DB->set_field('page', 'content', $table, array('id' => $cm->instance));
+                break;
+
+            case 'book':
+
+                $separator = get_string('labelsep', 'langconfig');
+                $strlen = self::textlib('strlen', $separator);
+                if ($groupname && ($pos = self::textlib('strpos', $groupname, $separator))) {
+                    $prefix = $separator.self::textlib('substr', $groupname, 0, $pos - 1);
+                    $groupname = self::textlib('substr', $groupname, $pos + $strlen);
+                } else {
+                    $prefix = '';
+                }
+
+                if ($chapter = $DB->get_record('book_chapters', array('bookid' => $cm->instance, 'title' => $groupname))) {
+                    $DB->set_field('book_chapters', 'content', $table, array('id' => $chapter->id));
+                } else {
+                    if ($pagenum = $DB->get_field('book_chapters', 'MAX(pagenum)', array('bookid' => $cm->instance))) {
+                        $pagenum = $pagenum + 1;
+                    } else {
+                        // add "Group logins" title page
+                        $pagenum = 1;
+                        $chapter = (object)array('bookid' => $cm->instance,
+                                                 'pagenum' => $pagenum++,
+                                                 'subchapter' => 0,
+                                                 'title' => get_string('userlogindetails', 'tool_importusers').$prefix,
+                                                 'content' => '',
+                                                 'contentformat' => FORMAT_HTML,
+                                                 'timecreated' => time(),
+                                                 'timemodified' => time());
+                        $chapter->id = $DB->insert_record('book_chapters', $chapter);
+                    }
+                    $chapter = (object)array('bookid' => $cm->instance,
+                                             'pagenum' => $pagenum,
+                                             'subchapter' => 1,
+                                             'title' => $groupname,
+                                             'content' => $table,
+                                             'contentformat' => FORMAT_HTML,
+                                             'timecreated' => time(),
+                                             'timemodified' => time());
+                    $chapter->id = $DB->insert_record('book_chapters', $chapter);
+                }
+                break;
+        }
+
+        // Trigger mod_updated event with information about this page resource.
+        if (class_exists('\\core\\event\\course_module_updated')) {
+            // Moodle >= 2.6
+            \core\event\course_module_updated::create_from_cm($cm)->trigger();
+        } else {
+            $event = (object)array(
+                'cmid'       => $cm->id,
+                'courseid'   => $cm->course,
+                'modulename' => $cm->modulename,
+                'name'       => $cm->name,
+                'userid'     => $USER->id
+            );
+            if (function_exists('events_trigger_legacy')) {
+                // Moodle 2.6 - 3.0 ... so not used here anymore
+                events_trigger_legacy('mod_updated', $event);
+            } else {
+                // Moodle <= 2.5
+                events_trigger('mod_updated', $event);
             }
         }
 

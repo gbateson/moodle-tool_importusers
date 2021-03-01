@@ -2,6 +2,12 @@
 Change log for tool_importusers
 ========================================
 
+2021-03-01 (21)
+ - allow for missing 'settings' in XML tree, and fix error about undefined variable $subchapter
+
+2020-10-23 (20)
+ - improve parsing of functions in XML file, and allow user to choose between adding login details to a Book resource or a Page resource.
+
 2020-10-17 (19)
  - Sync to SVN repository
 
