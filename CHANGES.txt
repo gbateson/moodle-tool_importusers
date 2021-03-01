@@ -2,8 +2,8 @@
 Change log for tool_importusers
 ========================================
 
-2020-10-23 (20)
- - improve parsing of functions in XML file, and allow user to choose between adding login details to a Book resource or a Page resource.
+2020-10-17 (19)
+ - Sync to SVN repository
 
 2020-10-17 (19)
  - fix syntax error leftover from recent upgrade.
