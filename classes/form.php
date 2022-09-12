@@ -930,6 +930,9 @@ class tool_importusers_form extends moodleform {
         }
 
         $filevars = array();
+        if ($table->caption && preg_match('/"([^"]+)"/', $table->caption, $match)) {
+            $filevars['filename'] = $match[1];
+        }
         foreach ($format->params as $name => $value) {
             $filevars[$name] = $value;
         }
@@ -944,6 +947,16 @@ class tool_importusers_form extends moodleform {
 
                 $sheetname = $worksheet->getTitle();
                 $sheetvars = array('sheet_name' => $sheetname);
+
+                if (empty($sheet->rows)) {
+                    $sheet->rows = stdClass();
+                }
+                if (empty($sheet->rows->meta)) {
+                    $sheet->rows->meta = array();
+                }
+                if (empty($sheet->rows->data)) {
+                    $sheet->rows->meta = array();
+                }
 
                 foreach ($sheet->rows->meta as $row) {
 
