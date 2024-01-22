@@ -513,13 +513,12 @@ class tool_importusers_form extends moodleform {
         $fs = get_file_storage();
         $context = self::context(CONTEXT_USER, $USER->id);
 
-        $datafilepath = '';
-        $datafilename = '';
-        $this->get_datafileinfo($fs, $context, $datafilename, $datafilepath);
-
-        $formatfilename = '';
-        $formatfilecontent = '';
-        $this->get_formatfileinfo($fs, $context, $formatfilename, $formatfilecontent);
+        list($datafilename, $datafilepath, $datafilecontent) = $this->get_fileinfo(
+            $fs, $context, 'datafile', make_temp_directory('forms')
+        );
+        list($formatfilename, $formatfilepath, $formatfilecontent) = $this->get_fileinfo(
+            $fs, $context, 'formatfile'
+        );
         $format = $this->parse_format_xml($formatfilecontent);
 
         if (is_string($format)) {
@@ -566,47 +565,34 @@ class tool_importusers_form extends moodleform {
     }
 
     /**
-     * get_datafileinfo
+     * get_fileinfo
      */
-    public function get_datafileinfo($fs, $context, &$datafilename, &$datafilepath) {
-        $param = 'datafile';
-        if ($datadraftid = optional_param($param, 0, PARAM_INT)) {
-            $datafile = $fs->get_area_files($context->id, 'user', 'draft', $datadraftid, 'id DESC', false);
-            if (count($datafile)) {
-                $datafile = reset($datafile);
-                $datafilename = $datafile->get_filename();
-                $datafiletype = substr($datafilename, strrpos($datafilename, '.'));
-                if ($dir = make_temp_directory('forms')) {
-                    if ($datafilepath = tempnam($dir, 'tempup_')) {
-                        rename($datafilepath, $datafilepath.$datafiletype);
-                        $datafilepath .= $datafiletype;
-                        $datafile->copy_content_to($datafilepath);
-                    }
+    public function fileinfo($fs, $context, $paramname, $tempdir='') {
+        $filename = '';
+        $filepath = '';
+        $filecontent = '';
+        if ($draftid = optional_param($paramname, 0, PARAM_INT)) {
+            $file = $fs->get_area_files($context->id, 'user', 'draft', $draftid, 'id DESC', false);
+            if (count($file)) {
+                $file = reset($file);
+                $filename = $file->get_filename();
+                $filetype = substr($filename, strrpos($filename, '.'));
+                if ($tempdir == '') {
+                    $filecontent = $file->get_content();
+                } else if ($filepath = tempnam($tempdir, 'tempup_')) {
+                    rename($filepath, $filepath.$filetype);
+                    $filepath .= $filetype;
+                    $file->copy_content_to($filepath);
                 }
             }
-        } else if (array_key_exists($name, $_FILES)) {
-            $datafilename = $_FILES[$param]['name'];
-            $datafilepath = $_FILES[$param]['tmp_name'];
-        }
-    }
-
-    /**
-     * get_formatfileinfo
-     */
-    public function get_formatfileinfo($fs, $context, &$formatfilename, &$formatfilecontent) {
-        $param = 'formatfile';
-        if ($formatdraftid = optional_param($param, 0, PARAM_INT)) {
-            $formatfile = $fs->get_area_files($context->id, 'user', 'draft', $formatdraftid, 'id DESC', false);
-            if (count($formatfile)) {
-                $formatfile = reset($formatfile);
-                $formatfilename = $formatfile->get_filename();
-                $formatfilecontent = $formatfile->get_content();
+        } else if (array_key_exists($paramname, $_FILES)) {
+            $filename = $_FILES[$param]['name'];
+            $filepath = $_FILES[$paramname]['tmp_name'];
+            if ($tempdir == '') {
+                $filecontent = file_get_contents($filepath);
             }
-        } else if (array_key_exists($param, $_FILES)) {
-            $formatfilename = $_FILES[$param]['name'];
-            $formatfilecontent = $_FILES[$param]['tmp_name'];
-            $formatfilecontent = file_get_contents($formatfilecontent);
         }
+        return array($filename, $filepath, $filecontent);
     }
 
     /**
